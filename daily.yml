@@ -30,8 +30,8 @@ def make_session():
 
 CONFIG = {
     "city_code": "6700",
-    "watch_neighborhoods": ["׳׳—׳•׳–׳”", "׳”׳›׳¨׳׳", "׳¨׳׳•׳× ׳›׳¨׳׳", "׳ ׳•׳•׳” ׳©׳׳ ׳", "׳”׳“׳¨"],
-    "watch_streets": [],  # ׳¨׳™׳§ = ׳›׳ ׳—׳™׳₪׳”
+    "watch_neighborhoods": [],
+    "watch_streets": [],
     "data_dir":    Path("./haifa_data"),
     "cache_file":  Path("./haifa_data/cache.json"),
     "report_html": Path("./haifa_data/daily_report.html"),
