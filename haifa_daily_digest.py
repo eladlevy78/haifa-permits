@@ -116,57 +116,53 @@ def get_hardcoded_meetings(days_back):
 
 # ג”€ג”€ ׳©׳׳™׳₪׳× PDFs ׳׳›׳ ׳™׳©׳™׳‘׳” ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
-    log(f"  ׳©׳•׳׳£ ׳׳¡׳׳›׳™׳ ׳׳™׳©׳™׳‘׳” {meeting_id}...")
+    log(f"  Fetching docs for meeting {meeting_id}...")
+
+    # Try API first
     session = requests.Session()
     session.headers.update(HEADERS)
-
-    apis = [
+    for url in [
         f"{COMPLOT_BASE}/newengine/api/Meetings/GetMeetingDocuments?committeeId={committee_id}&meetingId={meeting_id}&siteid=16",
         f"{COMPLOT_BASE}/newengine/Services/MeetingsService.svc/json/GetMeetingDocuments?committeeId={committee_id}&meetingId={meeting_id}&siteid=16",
-    ]
-
-    for url in apis:
+    ]:
         try:
             r = session.get(url, timeout=15)
             if r.status_code == 200 and len(r.text) > 5:
-                try:
-                    docs = r.json()
-                    if isinstance(docs, list) and docs:
-                        log(f"    {len(docs)} ׳׳¡׳׳›׳™׳ ׳-API")
-                        return [format_doc(d, committee, date) for d in docs]
-                except:
-                    pass
+                docs = r.json()
+                if isinstance(docs, list) and docs:
+                    log(f"    {len(docs)} docs from API")
+                    return [format_doc(d, committee, date) for d in docs]
         except:
             pass
 
-    # fallback HTML
-    try:
-        session.get(COMPLOT_BASE + "/", timeout=8)
-        time.sleep(0.5)
-        r = session.get(
-            f"{COMPLOT_BASE}/yeshivot/",
-            params={"committee": committee_id, "meeting": meeting_id},
-            timeout=12
-        )
-        soup = BeautifulSoup(r.text, "html.parser")
-        docs = []
-        for a in soup.find_all("a", href=re.compile(r"\.pdf", re.I)):
-            href = a["href"]
-            if not href.startswith("http"): href = COMPLOT_BASE + href
-            docs.append({
-                "text": a.get_text(strip=True) or "׳׳¡׳׳",
-                "href": href,
-                "committee": committee,
-                "date": date,
-                "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in a.get_text()
-            })
-        if docs:
-            log(f"    {len(docs)} ׳׳¡׳׳›׳™׳ ׳-HTML")
-            return docs
-    except Exception as e:
-        log(f"    HTML ׳©׳’׳™׳׳”: {e}")
+    # Fallback: hardcoded PDFs discovered via Chrome browser session
+    hardcoded = {
+        "675": [
+            {"text": "Agenda - Local Licensing Authority", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/e829597a-b0e6-4789-9194-19206ecf6089.pdf", "is_protocol": False},
+            {"text": "Protocol - Local Licensing Authority", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/778/c3111d4b-3844-4354-8646-98c3193e884d.pdf", "is_protocol": True},
+        ],
+        "151": [
+            {"text": "Agenda - Historic Preservation Committee", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/6a69298e-8eba-40fc-8495-47a3db5a5895.pdf", "is_protocol": False},
+        ],
+        "62": [
+            {"text": "Agenda - Sub-Committee 62", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/0013b341-4800-449d-aed2-f5e04e512fa7.pdf", "is_protocol": False},
+            {"text": "Addendum - Sub-Committee 62", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/acb965b2-7f6f-45a5-911f-e71fc861089c.pdf", "is_protocol": False},
+        ],
+        "674": [
+            {"text": "Agenda - Local Licensing Authority", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/7fbc7bcc-97df-4791-8c66-2c30b14d2aba.pdf", "is_protocol": False},
+            {"text": "Protocol - Local Licensing Authority", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/778/362054d5-1e90-4269-8680-7e7905abe3fe.pdf", "is_protocol": True},
+        ],
+        "673": [
+            {"text": "Protocol - Local Licensing Authority", "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/778/6ea1d4ff-4fce-48ea-842d-02391b4c142e.pdf", "is_protocol": True},
+        ],
+    }
 
-    log(f"    ׳׳™׳ ׳׳¡׳׳›׳™׳ ׳׳™׳©׳™׳‘׳” {meeting_id}")
+    if meeting_id in hardcoded:
+        docs = [{**d, "committee": committee, "date": date} for d in hardcoded[meeting_id]]
+        log(f"    {len(docs)} docs from hardcoded list")
+        return docs
+
+    log(f"    No docs for meeting {meeting_id}")
     return []
 
 def format_doc(d, committee, date):
