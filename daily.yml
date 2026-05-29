@@ -112,40 +112,101 @@ def fetch_mavat_decisions(days_back=30):
         log(f"  ׳©׳’׳™׳׳”: {e}")
         return []
 
+COMPLOT_SITE_ID = "16"
+
 def fetch_complot_meetings():
-    log("Complot ג€“ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳”...")
+    """׳©׳•׳׳£ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳” ׳-Complot ג€“ API ׳™׳©׳™׳¨"""
+    log("Complot ג€“ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳” (API)...")
     meetings = []
+    today = datetime.now()
+    fd = (today - timedelta(days=30)).strftime("%d/%m/%Y")
+    td = today.strftime("%d/%m/%Y")
+
+    # ׳ ׳™׳¡׳™׳•׳ API ׳™׳©׳™׳¨ (׳”׳₪׳¨׳׳˜׳¨׳™׳ ׳׳”-URL ׳©׳¡׳™׳₪׳§ ׳”׳׳©׳×׳׳©)
+    api_urls = [
+        f"https://haifa.complot.co.il/newengine/api/meetings/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&v=0&fd={fd}&td={td}&l=true",
+        f"https://haifa.complot.co.il/COMPLOTServices/MeetingsService.svc/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&fd={fd}&td={td}",
+        f"https://haifa.complot.co.il/newengine/Services/MeetingsService.svc/json/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&fd={fd}&td={td}&v=0",
+    ]
+    for url in api_urls:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                items = data if isinstance(data, list) else data.get("d", data.get("meetings", data.get("results", [])))
+                for item in items:
+                    meetings.append({
+                        "text":       item.get("MeetingTitle") or item.get("Title") or item.get("title", "׳™׳©׳™׳‘׳”"),
+                        "date":       item.get("MeetingDate") or item.get("Date") or item.get("date", ""),
+                        "source_url": item.get("DocumentUrl") or item.get("Url") or item.get("url", "#"),
+                        "is_pdf":     True,
+                        "raw":        item
+                    })
+                if meetings:
+                    log(f"  {len(meetings)} ׳™׳©׳™׳‘׳•׳× ׳-API")
+                    return meetings
+        except Exception as e:
+            log(f"  API {url}: {e}")
+
+    # ׳ ׳™׳¡׳™׳•׳ HTML ׳¢׳ session + cookies
     session = requests.Session()
     session.headers.update(HEADERS)
-    urls = [
-        "http://haifa.complot.co.il/newengine/Pages/meetings2.aspx",
-        "http://haifa.complot.co.il/newengine/Pages/meetings.aspx",
-        "https://haifa.complot.co.il/yeshivot/",
-    ]
-    for url in urls:
-        try:
-            r = session.get(url, timeout=15)
-            if r.status_code != 200: continue
+    try:
+        session.get("https://haifa.complot.co.il/", timeout=10)
+        time.sleep(1)
+        r = session.get("https://haifa.complot.co.il/yeshivot/", timeout=15)
+        if r.status_code == 200:
             soup = BeautifulSoup(r.text, "html.parser")
-            for row in soup.select("tr, li"):
-                text = row.get_text(strip=True)
-                dm = re.search(r'\d{1,2}/\d{1,2}/\d{4}', text)
-                if dm and 10 < len(text) < 300:
-                    meetings.append({"text": text[:150], "date": dm.group(), "source_url": url, "is_pdf": False})
             for link in soup.find_all("a", href=True):
                 href = link["href"]
-                lt = link.get_text(strip=True)
-                if any(x in href.lower() or x in lt for x in [".pdf","protocol"]):
-                    full = href if href.startswith("http") else "http://haifa.complot.co.il" + href
-                    meetings.append({"text": f"׳₪׳¨׳•׳˜׳•׳§׳•׳: {lt or href}", "date": datetime.now().strftime("%d/%m/%Y"), "source_url": full, "is_pdf": True})
+                lt   = link.get_text(strip=True)
+                if ".pdf" in href.lower() or any(x in lt for x in ["׳™׳©׳™׳‘׳”","׳₪׳¨׳•׳˜׳•׳§׳•׳","׳”׳—׳׳˜׳•׳×"]):
+                    full = href if href.startswith("http") else "https://haifa.complot.co.il" + href
+                    dm   = re.search(r'\d{1,2}[./]\d{1,2}[./]\d{2,4}', lt + href)
+                    meetings.append({
+                        "text":       lt or href,
+                        "date":       dm.group() if dm else today.strftime("%d/%m/%Y"),
+                        "source_url": full,
+                        "is_pdf":     ".pdf" in href.lower()
+                    })
             if meetings:
-                log(f"  {len(meetings)} ׳™׳©׳™׳‘׳•׳×")
-                break
-        except Exception as e:
-            log(f"  {url}: {e}")
-    if not meetings:
-        log("  Complot ׳™׳©׳™׳‘׳•׳× ג€“ ׳׳ ׳ ׳’׳™׳©")
-    return meetings
+                log(f"  {len(meetings)} ׳™׳©׳™׳‘׳•׳× ׳-HTML")
+                return meetings
+    except Exception as e:
+        log(f"  HTML: {e}")
+
+    log("  Complot ׳™׳©׳™׳‘׳•׳× ג€“ ׳׳ ׳ ׳’׳™׳©")
+    return []
+
+def summarize_pdf_with_claude(pdf_url: str) -> str:
+    """׳׳•׳¨׳™׳“ PDF ׳•׳׳¡׳›׳ ׳¢׳ Claude API"""
+    try:
+        r = requests.get(pdf_url, headers=HEADERS, timeout=30)
+        if r.status_code != 200:
+            return ""
+        import base64
+        pdf_b64 = base64.b64encode(r.content).decode()
+        resp = requests.post("https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                        {"type": "text", "text": "׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳ ׳™׳©׳™׳‘׳× ׳”׳•׳¢׳“׳”. ׳›׳×׳•׳‘ ׳¨׳©׳™׳׳× ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳” (׳¢׳“ 5 ׳ ׳§׳•׳“׳•׳×). ׳”׳×׳׳§׳“ ׳‘׳”׳—׳׳˜׳•׳× ׳׳¢׳©׳™׳•׳× ׳‘׳׳‘׳“."}
+                    ]
+                }]
+            },
+            timeout=30
+        )
+        if resp.status_code == 200:
+            content = resp.json().get("content", [])
+            return next((c["text"] for c in content if c.get("type") == "text"), "")
+    except Exception as e:
+        log(f"  ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳ PDF: {e}")
+    return ""
 
 def fetch_complot_permits():
     log("Complot ג€“ ׳”׳™׳×׳¨׳™׳...")
@@ -235,8 +296,10 @@ def mr(items):
     if not items: return "<tr><td colspan='3' class='empty'>׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× (׳™׳™׳×׳›׳ ׳—׳¡׳™׳׳”)</td></tr>"
     out = ""
     for m in items[:20]:
-        icon = "נ“„" if m.get("is_pdf") else "נ—“ן¸"
-        out += f"<tr><td>{icon}</td><td><a href='{m.get('source_url','#')}' target='_blank' class='pl'>{m.get('text','ג€”')[:120]}</a></td><td>{m.get('date','ג€”')}</td></tr>"
+        icon    = "נ“„" if m.get("is_pdf") else "נ—“ן¸"
+        summary = m.get("summary","")
+        summary_html = f"<div style='color:#94a3b8;font-size:.78rem;margin-top:4px;padding-right:8px'>{summary}</div>" if summary else ""
+        out += f"<tr><td>{icon}</td><td><a href='{m.get('source_url','#')}' target='_blank' class='pl'>{m.get('text','ג€”')[:120]}</a>{summary_html}</td><td>{m.get('date','ג€”')}</td></tr>"
     return out
 
 def dr(items):
@@ -315,6 +378,17 @@ def main():
     meetings  = fetch_complot_meetings()
     time.sleep(2)
     permits   = fetch_complot_permits()
+
+    # ׳¡׳™׳›׳•׳ PDFs ׳©׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳ ׳¢׳ Claude
+    log("׳׳¡׳›׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳...")
+    for m in meetings:
+        if m.get("is_pdf") and m.get("source_url","#") != "#":
+            log(f"  ׳׳¡׳›׳: {m['text'][:50]}...")
+            summary = summarize_pdf_with_claude(m["source_url"])
+            if summary:
+                m["summary"] = summary
+                log(f"  ׳¡׳™׳›׳•׳ ׳”׳•׳©׳׳")
+            time.sleep(1)
     changes   = detect_changes(plans, cache)
     log(f"׳—׳“׳©׳•׳×:{changes['new_count']} | ׳׳׳•׳©׳¨׳•׳×:{len(changes['approved'])} | ׳”׳₪׳§׳“׳”:{len(changes['deposited'])} | ׳“׳—׳•׳™׳•׳×:{len(changes['rejected'])} | ׳™׳©׳™׳‘׳•׳×:{len(meetings)}")
     html = build_report(plans, decisions, meetings, permits, changes)
