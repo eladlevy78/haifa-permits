@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 haifa_daily_digest.py v3
-׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”
-׳׳•׳’׳™׳§׳” ׳׳‘׳•׳¡׳¡׳× ׳’׳™׳׳•׳™ ׳׳׳™׳×׳™ ׳©׳ ׳׳‘׳ ׳” ׳”׳׳×׳¨
+דוח יומי – ועדה מקומית חיפה
+לוגיקה מבוססת גילוי אמיתי של מבנה האתר
 """
 
 import requests, json, os, time, smtplib, re, base64
@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
 
-# ג”€ג”€ ׳”׳’׳“׳¨׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── הגדרות ──────────────────────────────────
 CONFIG = {
     "data_dir":    Path("./haifa_data"),
     "cache_file":  Path("./haifa_data/cache.json"),
@@ -39,7 +39,7 @@ HEADERS = {
     "Referer": COMPLOT_BASE + "/",
 }
 
-# ג”€ג”€ ׳¢׳–׳¨׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── עזרים ───────────────────────────────────
 def log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}")
@@ -58,10 +58,10 @@ def save_cache(c):
     with open(CONFIG["cache_file"], "w", encoding="utf-8") as f:
         json.dump(c, f, ensure_ascii=False, indent=2)
 
-# ג”€ג”€ ׳©׳׳™׳₪׳× ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── שליפת רשימת ישיבות ──────────────────────
 def fetch_meetings(days_back=30):
-    """׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳-Complot API"""
-    log("Complot ג€“ ׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳×...")
+    """שולף רשימת ישיבות מ-Complot API"""
+    log("Complot – שולף רשימת ישיבות...")
     today = datetime.now()
     fd = (today - timedelta(days=days_back)).strftime("%d/%m/%Y")
     td = today.strftime("%d/%m/%Y")
@@ -69,21 +69,21 @@ def fetch_meetings(days_back=30):
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    # ׳˜׳¢׳ ׳“׳£ ׳¨׳׳©׳™ ׳׳§׳‘׳׳× cookies
+    # טען דף ראשי לקבלת cookies
     try:
         session.get(COMPLOT_BASE + "/yeshivot/", timeout=10)
         time.sleep(1)
     except:
         pass
 
-    # ׳©׳׳•׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳׳”-HTML (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳• ׳‘׳“׳₪׳“׳₪׳)
+    # שלוף רשימת ישיבות מה-HTML (כפי שגילינו בדפדפן)
     url = f"{COMPLOT_BASE}/yeshivot/#search/GetMeetingByDate&siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true&arguments=siteid,v,fd,td,l"
     try:
         r = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # ׳—׳₪׳© ׳׳× ׳”׳ ׳×׳•׳ ׳™׳ ׳׳”-script ׳׳• ׳׳”-API ׳”׳₪׳ ׳™׳׳™
-        # ׳ ׳¡׳” ׳׳× ׳”-API ׳”׳™׳“׳•׳¢
+        # חפש את הנתונים מה-script או מה-API הפנימי
+        # נסה את ה-API הידוע
         api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingByDate?siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true"
         r2 = session.get(api_url, timeout=15)
         if r2.status_code == 200:
@@ -91,14 +91,14 @@ def fetch_meetings(days_back=30):
                 data = r2.json()
                 items = data if isinstance(data, list) else data.get("d", data.get("meetings", []))
                 if items:
-                    log(f"  API: {len(items)} ׳™׳©׳™׳‘׳•׳×")
+                    log(f"  API: {len(items)} ישיבות")
                     return parse_api_meetings(items)
             except:
                 pass
     except Exception as e:
-        log(f"  ׳©׳’׳™׳׳”: {e}")
+        log(f"  שגיאה: {e}")
 
-    # fallback: ׳ ׳¡׳” URL ׳™׳©׳™׳¨ ׳¢׳ ׳”׳₪׳¨׳׳˜׳¨׳™׳
+    # fallback: נסה URL ישיר עם הפרמטרים
     try:
         r3 = session.get(
             f"{COMPLOT_BASE}/newengine/Pages/meetings2.aspx",
@@ -108,9 +108,9 @@ def fetch_meetings(days_back=30):
         if r3.status_code == 200:
             return parse_html_meetings(r3.text, fd, td)
     except Exception as e:
-        log(f"  fallback ׳©׳’׳™׳׳”: {e}")
+        log(f"  fallback שגיאה: {e}")
 
-    log("  ׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×")
+    log("  לא הצלחתי לשלוף ישיבות")
     return []
 
 def parse_api_meetings(items):
@@ -141,16 +141,16 @@ def parse_html_meetings(html, fd, td):
         })
     return meetings
 
-# ג”€ג”€ ׳©׳׳™׳₪׳× PDFs ׳©׳ ׳™׳©׳™׳‘׳” ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── שליפת PDFs של ישיבה ──────────────────────
 def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
-    """׳©׳•׳׳£ ׳§׳™׳©׳•׳¨׳™ PDF ׳׳™׳©׳™׳‘׳” ׳¡׳₪׳¦׳™׳₪׳™׳×"""
+    """שולף קישורי PDF לישיבה ספציפית"""
     session = requests.Session()
     session.headers.update(HEADERS)
 
     try:
-        # ׳›׳×׳•׳‘׳× ׳“׳£ ׳”׳™׳©׳™׳‘׳” (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳•)
+        # כתובת דף הישיבה (כפי שגילינו)
         url = f"{COMPLOT_BASE}/yeshivot/#meeting/{committee_id}/{meeting_id}"
-        # ׳”-API ׳”׳׳׳™׳×׳™ ׳©׳׳—׳–׳™׳¨ ׳׳× ׳׳¡׳׳›׳™ ׳”׳™׳©׳™׳‘׳”
+        # ה-API האמיתי שמחזיר את מסמכי הישיבה
         api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingDocuments?committeeId={committee_id}&meetingId={meeting_id}&siteid={SITE_ID}"
 
         r = session.get(api_url, timeout=15)
@@ -158,13 +158,13 @@ def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
             try:
                 docs = r.json()
                 if isinstance(docs, list):
-                    return [{"text": d.get("Title","׳׳¡׳׳"), "href": d.get("Url",""), "committee": committee, "date": date, "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in d.get("Title","")} for d in docs if d.get("Url")]
+                    return [{"text": d.get("Title","מסמך"), "href": d.get("Url",""), "committee": committee, "date": date, "is_protocol": "פרוטוקול" in d.get("Title","")} for d in docs if d.get("Url")]
             except: pass
 
-        # fallback ג€“ HTML ׳™׳©׳™׳¨
+        # fallback – HTML ישיר
         r2 = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=10)
         time.sleep(0.5)
-        # ׳ ׳‘׳ ׳” URL ׳›׳׳• ׳©׳”-JS ׳¢׳•׳©׳”
+        # נבנה URL כמו שה-JS עושה
         page_url = f"{COMPLOT_BASE}/yeshivot/?committee={committee_id}&meeting={meeting_id}"
         r3 = session.get(page_url, timeout=15)
         soup = BeautifulSoup(r3.text, "html.parser")
@@ -174,30 +174,30 @@ def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
             if not href.startswith("http"):
                 href = COMPLOT_BASE + href
             pdfs.append({
-                "text": a.get_text(strip=True) or "׳׳¡׳׳",
+                "text": a.get_text(strip=True) or "מסמך",
                 "href": href,
                 "committee": committee,
                 "date": date,
-                "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in a.get_text()
+                "is_protocol": "פרוטוקול" in a.get_text()
             })
         return pdfs
     except Exception as e:
-        log(f"  PDF ׳©׳’׳™׳׳” ({committee_id}/{meeting_id}): {e}")
+        log(f"  PDF שגיאה ({committee_id}/{meeting_id}): {e}")
         return []
 
-# ג”€ג”€ ׳¡׳™׳›׳•׳ PDF ׳¢׳ Claude ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── סיכום PDF עם Claude ──────────────────────
 def summarize_pdf(pdf_url, committee, date):
-    """׳׳•׳¨׳™׳“ PDF ׳•׳׳¡׳›׳ ׳¢׳ Claude API"""
+    """מוריד PDF ומסכם עם Claude API"""
     try:
-        log(f"  ׳׳¡׳›׳ PDF: {pdf_url[-50:]}")
+        log(f"  מסכם PDF: {pdf_url[-50:]}")
         r = requests.get(pdf_url, headers=HEADERS, timeout=30)
         if r.status_code != 200:
-            log(f"  PDF ׳׳ ׳ ׳’׳™׳© (status {r.status_code})")
+            log(f"  PDF לא נגיש (status {r.status_code})")
             return ""
 
         content_type = r.headers.get("Content-Type", "")
         if "pdf" not in content_type.lower() and not pdf_url.lower().endswith(".pdf"):
-            log(f"  ׳׳ PDF: {content_type}")
+            log(f"  לא PDF: {content_type}")
             return ""
 
         pdf_b64 = base64.b64encode(r.content).decode()
@@ -217,7 +217,7 @@ def summarize_pdf(pdf_url, committee, date):
                         },
                         {
                             "type": "text",
-                            "text": f"׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳/׳׳¡׳׳ ׳–׳” ׳©׳ {committee} ׳׳×׳׳¨׳™׳ {date}. ׳›׳×׳•׳‘ ׳¢׳“ 6 ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳•׳× ׳•׳׳¢׳©׳™׳•׳×. ׳׳ ׳–׳” ׳¡׳“׳¨ ׳™׳•׳ ׳•׳׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳, ׳¦׳™׳™׳ ׳׳× ׳”׳ ׳•׳©׳׳™׳ ׳”׳¢׳™׳§׳¨׳™׳™׳ ׳©׳¢׳ ׳”׳₪׳¨׳§."
+                            "text": f"סכם בעברית את ההחלטות העיקריות מפרוטוקול/מסמך זה של {committee} מתאריך {date}. כתוב עד 6 נקודות קצרות ומעשיות. אם זה סדר יום ולא פרוטוקול, ציין את הנושאים העיקריים שעל הפרק."
                         }
                     ]
                 }]
@@ -228,17 +228,17 @@ def summarize_pdf(pdf_url, committee, date):
         if resp.status_code == 200:
             content = resp.json().get("content", [])
             summary = next((c["text"] for c in content if c.get("type") == "text"), "")
-            log(f"  ׳¡׳•׳›׳ ׳‘׳”׳¦׳׳—׳” ({len(summary)} ׳×׳•׳•׳™׳)")
+            log(f"  סוכם בהצלחה ({len(summary)} תווים)")
             return summary
         else:
-            log(f"  Claude API ׳©׳’׳™׳׳”: {resp.status_code}")
+            log(f"  Claude API שגיאה: {resp.status_code}")
             return ""
 
     except Exception as e:
-        log(f"  ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳: {e}")
+        log(f"  שגיאת סיכום: {e}")
         return ""
 
-# ג”€ג”€ ׳‘׳ ׳™׳™׳× ׳“׳•׳— HTML ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── בניית דוח HTML ───────────────────────────
 def build_html(meetings_with_docs, today_str):
     total_meetings = len(meetings_with_docs)
     total_pdfs     = sum(len(m["docs"]) for m in meetings_with_docs)
@@ -250,10 +250,10 @@ def build_html(meetings_with_docs, today_str):
         for d in m["docs"]:
             summary_html = ""
             if d.get("summary"):
-                lines = d["summary"].replace("ג€¢","").strip().split("\n")
-                bullets = "".join(f"<li>{l.strip().lstrip('- ג€¢*').strip()}</li>" for l in lines if l.strip())
+                lines = d["summary"].replace("•","").strip().split("\n")
+                bullets = "".join(f"<li>{l.strip().lstrip('- •*').strip()}</li>" for l in lines if l.strip())
                 summary_html = f"<ul class='summary'>{bullets}</ul>"
-            badge = "<span class='badge proto'>׳₪׳¨׳•׳˜׳•׳§׳•׳</span>" if d.get("is_protocol") else "<span class='badge agenda'>׳¡׳“׳¨ ׳™׳•׳</span>"
+            badge = "<span class='badge proto'>פרוטוקול</span>" if d.get("is_protocol") else "<span class='badge agenda'>סדר יום</span>"
             docs_html += f"""
             <div class='doc'>
               <div class='doc-header'>
@@ -264,7 +264,7 @@ def build_html(meetings_with_docs, today_str):
             </div>"""
 
         if not docs_html:
-            docs_html = "<p class='no-docs'>׳׳™׳ ׳׳¡׳׳›׳™׳ ׳–׳׳™׳ ׳™׳</p>"
+            docs_html = "<p class='no-docs'>אין מסמכים זמינים</p>"
 
         sections += f"""
         <section class='meeting-card'>
@@ -280,7 +280,7 @@ def build_html(meetings_with_docs, today_str):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” ג€“ {today_str}</title>
+<title>דוח ועדה חיפה – {today_str}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
 :root{{
@@ -323,26 +323,26 @@ body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);paddin
 </head>
 <body>
 <div class="header">
-  <h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1>
-  <p>׳¢׳•׳“׳›׳: {today_str} | {CONFIG['days_back']} ׳™׳׳™׳ ׳׳—׳¨׳•׳ ׳™׳</p>
+  <h1>🏗️ דוח ועדה מקומית – חיפה</h1>
+  <p>עודכן: {today_str} | {CONFIG['days_back']} ימים אחרונים</p>
 </div>
 <div class="stats">
-  <div class="stat"><div class="n">{total_meetings}</div><div class="l">׳™׳©׳™׳‘׳•׳×</div></div>
-  <div class="stat"><div class="n">{total_pdfs}</div><div class="l">׳׳¡׳׳›׳™׳</div></div>
-  <div class="stat"><div class="n">{total_protocols}</div><div class="l">׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳</div></div>
+  <div class="stat"><div class="n">{total_meetings}</div><div class="l">ישיבות</div></div>
+  <div class="stat"><div class="n">{total_pdfs}</div><div class="l">מסמכים</div></div>
+  <div class="stat"><div class="n">{total_protocols}</div><div class="l">פרוטוקולים</div></div>
 </div>
-{sections if sections else '<p style="text-align:center;color:var(--mt)">׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× ׳‘׳×׳§׳•׳₪׳” ׳–׳•</p>'}
+{sections if sections else '<p style="text-align:center;color:var(--mt)">לא נמצאו ישיבות בתקופה זו</p>'}
 <div class="footer">
-  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://mavat.iplan.gov.il">׳׳‘׳"׳×</a></p>
-  <p style="margin-top:5px">׳”׳“׳•׳— ׳”׳‘׳: ׳׳—׳¨ ׳‘-08:00 ׳׳•׳˜׳•׳׳˜׳™׳×</p>
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot חיפה</a> · <a href="https://mavat.iplan.gov.il">מבא"ת</a></p>
+  <p style="margin-top:5px">הדוח הבא: מחר ב-08:00 אוטומטית</p>
 </div>
 </body></html>"""
 
-# ג”€ג”€ ׳©׳׳™׳—׳× ׳׳™׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── שליחת מייל ──────────────────────────────
 def send_email(subject, html):
     cfg = CONFIG["email"]
     if not cfg["enabled"] or not cfg["sender"]:
-        log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨ ג€“ ׳׳“׳׳’")
+        log("מייל לא מוגדר – מדלג")
         return
     try:
         msg = MIMEMultipart("alternative")
@@ -354,31 +354,31 @@ def send_email(subject, html):
             s.starttls()
             s.login(cfg["sender"], cfg["password"])
             s.sendmail(cfg["sender"], cfg["recipient"], msg.as_string())
-        log("׳׳™׳™׳ ׳ ׳©׳׳—!")
+        log("מייל נשלח!")
     except Exception as e:
-        log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
+        log(f"שגיאת מייל: {e}")
 
-# ג”€ג”€ ׳¨׳׳©׳™ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── ראשי ────────────────────────────────────
 def main():
     CONFIG["data_dir"].mkdir(exist_ok=True)
     today_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     log("=" * 50)
-    log(f"׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳” v3")
+    log(f"דוח יומי – ועדה מקומית חיפה v3")
     log(f"{today_str}")
     log("=" * 50)
 
-    # 1. ׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×
+    # 1. שלוף ישיבות
     meetings = fetch_meetings(CONFIG["days_back"])
-    log(f"׳ ׳׳¦׳׳• {len(meetings)} ׳™׳©׳™׳‘׳•׳×")
+    log(f"נמצאו {len(meetings)} ישיבות")
 
-    # 2. ׳©׳׳•׳£ PDFs ׳׳›׳ ׳™׳©׳™׳‘׳” ׳•׳¡׳›׳
+    # 2. שלוף PDFs לכל ישיבה וסכם
     meetings_with_docs = []
     for m in meetings:
-        log(f"׳™׳©׳™׳‘׳” {m['meetingId']} ג€“ {m['committee']} ({m['date']})")
+        log(f"ישיבה {m['meetingId']} – {m['committee']} ({m['date']})")
         docs = fetch_meeting_pdfs(m["committeeId"], m["meetingId"], m["committee"], m["date"])
-        log(f"  {len(docs)} ׳׳¡׳׳›׳™׳")
+        log(f"  {len(docs)} מסמכים")
 
-        # ׳¡׳›׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳
+        # סכם פרוטוקולים
         for d in docs:
             if d.get("is_protocol") and d.get("href"):
                 d["summary"] = summarize_pdf(d["href"], m["committee"], m["date"])
@@ -387,16 +387,16 @@ def main():
         meetings_with_docs.append({**m, "docs": docs})
         time.sleep(0.5)
 
-    # 3. ׳‘׳ ׳” ׳“׳•׳—
+    # 3. בנה דוח
     html = build_html(meetings_with_docs, today_str)
     CONFIG["report_html"].write_text(html, encoding="utf-8")
-    log(f"׳“׳•׳— ׳ ׳©׳׳¨: {CONFIG['report_html']}")
+    log(f"דוח נשמר: {CONFIG['report_html']}")
 
-    # 4. ׳©׳׳— ׳׳™׳™׳
+    # 4. שלח מייל
     total_p = sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
-    subj = f"נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {datetime.now().strftime('%d/%m/%Y')} ג€“ {len(meetings)} ׳™׳©׳™׳‘׳•׳× | {total_p} ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳"
+    subj = f"🏗️ דוח ועדה חיפה {datetime.now().strftime('%d/%m/%Y')} – {len(meetings)} ישיבות | {total_p} פרוטוקולים"
     send_email(subj, html)
-    log("׳¡׳™׳•׳!")
+    log("סיום!")
 
 if __name__ == "__main__":
     main()
