@@ -1,0 +1,36 @@
+name: Haifa Daily Digest
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # כל יום ב-08:00 שעון ישראל (UTC+2)
+  workflow_dispatch:        # אפשרות להרצה ידנית
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          EMAIL_SENDER:   ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python haifa_daily_digest.py
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report
+          path: haifa_data/daily_report.html
+          retention-days: 7
