@@ -2,8 +2,8 @@ name: Haifa Daily Digest
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # כל יום ב-08:00 שעון ישראל (UTC+2)
-  workflow_dispatch:        # אפשרות להרצה ידנית
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   run-digest:
@@ -23,12 +23,12 @@ jobs:
 
       - name: Run digest
         env:
-          EMAIL_SENDER:   ${{ secrets.EMAIL_SENDER }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: python haifa_daily_digest.py
 
-      - name: Upload report as artifact
+      - name: Upload report
         uses: actions/upload-artifact@v4
         with:
           name: daily-report
