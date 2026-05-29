@@ -292,16 +292,23 @@ def send_email(subject, html):
         log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨")
         return
     try:
+        from email.mime.base import MIMEBase
+        from email import encoders as email_encoders
         msg = MIMEMultipart("alternative")
         msg["Subject"] = Header(subject, "utf-8")
         msg["From"]    = cfg["sender"]
         msg["To"]      = cfg["recipient"]
-        msg.attach(MIMEText(html, "html", "utf-8"))
+        html_bytes = html.encode("utf-8")
+        part = MIMEBase("text", "html", charset="utf-8")
+        part.set_payload(html_bytes)
+        email_encoders.encode_base64(part)
+        part.add_header("Content-Transfer-Encoding", "base64")
+        msg.attach(part)
         with smtplib.SMTP(cfg["smtp_server"], cfg["smtp_port"]) as s:
             s.starttls()
             s.login(cfg["sender"], cfg["password"])
             s.send_message(msg)
-        log("׳׳™׳™׳ ׳ ׳©׳׳—!")
+        log("Email sent!")
     except Exception as e:
         log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
 
