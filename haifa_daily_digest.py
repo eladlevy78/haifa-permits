@@ -300,7 +300,7 @@ def send_email(subject, html):
         with smtplib.SMTP(cfg["smtp_server"], cfg["smtp_port"]) as s:
             s.starttls()
             s.login(cfg["sender"], cfg["password"])
-            s.sendmail(cfg["sender"], cfg["recipient"], msg.as_bytes())
+            s.send_message(msg)
         log("׳׳™׳™׳ ׳ ׳©׳׳—!")
     except Exception as e:
         log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
