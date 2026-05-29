@@ -1,29 +1,310 @@
-name: Haifa Daily Digest
-on:
-  schedule:
-    - cron: '0 6 * * *'
-  workflow_dispatch:
-jobs:
-  run-digest:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run digest
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-        run: python haifa_daily_digest.py
-      - name: Upload report
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-report
-          path: haifa_data/daily_report.html
-          retention-days: 7
+#!/usr/bin/env python3
+"""haifa_daily_digest.py v2 – ועדה מקומית חיפה"""
+
+import requests, json, os, time, smtplib, re
+from datetime import datetime, timedelta
+from pathlib import Path
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from bs4 import BeautifulSoup
+
+CONFIG = {
+    "city_code": "6700",
+    "watch_neighborhoods": ["אחוזה", "הכרמל", "רמות כרמל", "נווה שאנן", "הדר"],
+    "watch_streets": ["ויטקין"],
+    "data_dir":    Path("./haifa_data"),
+    "cache_file":  Path("./haifa_data/cache.json"),
+    "report_html": Path("./haifa_data/daily_report.html"),
+    "log_file":    Path("./haifa_data/digest.log"),
+    "email": {
+        "enabled":    True,
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port":   587,
+        "sender":    os.environ.get("EMAIL_SENDER", ""),
+        "password":  os.environ.get("EMAIL_PASSWORD", ""),
+        "recipient": os.environ.get("EMAIL_RECIPIENT", ""),
+    }
+}
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
+    "Referer": "http://haifa.complot.co.il/",
+}
+
+def log(msg):
+    ts = datetime.now().strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line)
+    CONFIG["log_file"].parent.mkdir(exist_ok=True)
+    with open(CONFIG["log_file"], "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+def load_cache():
+    if CONFIG["cache_file"].exists():
+        with open(CONFIG["cache_file"], encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_cache(cache):
+    CONFIG["cache_file"].parent.mkdir(exist_ok=True)
+    with open(CONFIG["cache_file"], "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+def ts_to_date(ts):
+    try:
+        if ts: return datetime.fromtimestamp(int(ts)/1000).strftime("%d/%m/%Y")
+    except: pass
+    return "/"
+
+IPLAN = "https://ags.iplan.gov.il/arcgisiplan/rest/services/PlanningPublic/Xplan/MapServer"
+
+def fetch_mavat_plans(days_back=30):
+    log("מבאת – תכניות...")
+    cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
+    try:
+        r = requests.get(f"{IPLAN}/1/query", params={
+            "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
+            "outFields": "PLAN_NUMBER,PLAN_NAME,STATION_DESC,LAST_UPDATE,COMMITTEE_NAME",
+            "returnGeometry": "false", "f": "json",
+            "resultRecordCount": 200, "orderByFields": "LAST_UPDATE DESC",
+        }, timeout=20)
+        feats = r.json().get("features",[])
+        log(f"  {len(feats)} תכניות")
+        return [f["attributes"] for f in feats]
+    except Exception as e:
+        log(f"  שגיאה: {e}")
+        return []
+
+def fetch_mavat_decisions(days_back=30):
+    log("מבאת – דיונים...")
+    cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
+    try:
+        r = requests.get(f"{IPLAN}/4/query", params={
+            "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
+            "outFields": "*", "returnGeometry": "false", "f": "json",
+            "resultRecordCount": 100,
+        }, timeout=20)
+        feats = r.json().get("features",[])
+        log(f"  {len(feats)} החלטות")
+        return [f["attributes"] for f in feats]
+    except Exception as e:
+        log(f"  שגיאה: {e}")
+        return []
+
+def fetch_complot_meetings():
+    log("Complot – ישיבות ועדה...")
+    meetings = []
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    urls = [
+        "http://haifa.complot.co.il/newengine/Pages/meetings2.aspx",
+        "http://haifa.complot.co.il/newengine/Pages/meetings.aspx",
+        "https://haifa.complot.co.il/yeshivot/",
+    ]
+    for url in urls:
+        try:
+            r = session.get(url, timeout=15)
+            if r.status_code != 200: continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            for row in soup.select("tr, li"):
+                text = row.get_text(strip=True)
+                dm = re.search(r'\d{1,2}/\d{1,2}/\d{4}', text)
+                if dm and 10 < len(text) < 300:
+                    meetings.append({"text": text[:150], "date": dm.group(), "source_url": url, "is_pdf": False})
+            for link in soup.find_all("a", href=True):
+                href = link["href"]
+                lt = link.get_text(strip=True)
+                if any(x in href.lower() or x in lt for x in [".pdf","protocol"]):
+                    full = href if href.startswith("http") else "http://haifa.complot.co.il" + href
+                    meetings.append({"text": f"פרוטוקול: {lt or href}", "date": datetime.now().strftime("%d/%m/%Y"), "source_url": full, "is_pdf": True})
+            if meetings:
+                log(f"  {len(meetings)} ישיבות")
+                break
+        except Exception as e:
+            log(f"  {url}: {e}")
+    if not meetings:
+        log("  Complot ישיבות – לא נגיש")
+    return meetings
+
+def fetch_complot_permits():
+    log("Complot – היתרים...")
+    results = []
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    for url in ["http://haifa.complot.co.il/newengine/Pages/taba2.aspx", "https://haifa.complot.co.il/Rishuy_bnia/"]:
+        try:
+            r = session.get(url, timeout=15)
+            if r.status_code != 200: continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            for row in soup.select("tr"):
+                cols = row.find_all("td")
+                if len(cols) >= 3:
+                    results.append({"permit_number": cols[0].get_text(strip=True), "address": cols[1].get_text(strip=True), "status": cols[2].get_text(strip=True), "date": cols[3].get_text(strip=True) if len(cols)>3 else ""})
+            if results:
+                log(f"  {len(results)} היתרים")
+                break
+        except Exception as e:
+            log(f"  {e}")
+    if not results: log("  Complot היתרים – לא נגיש")
+    return results
+
+NBHD = {
+    "אחוזה":       ["אחוזה","ורדיה","רמת אלמוגי"],
+    "הכרמל":       ["הכרמל","כרמל","גאולה"],
+    "רמות כרמל":  ["רמות כרמל","רמות"],
+    "נווה שאנן":  ["נווה שאנן","קריית אליהו"],
+    "הדר":         ["הדר","ביאליק"],
+}
+
+def filter_nbhd(plans, nbhd):
+    kws = NBHD.get(nbhd, [nbhd])
+    return [p for p in plans if any(kw in str(p.get("PLAN_NAME",""))+str(p.get("COMMITTEE_NAME","")) for kw in kws)]
+
+def detect_changes(plans, cache):
+    prev = set(cache.get("plan_ids",[]))
+    cur  = {str(p.get("PLAN_NUMBER","")) for p in plans}
+    nids = cur - prev
+    return {
+        "new_plans":  [p for p in plans if str(p.get("PLAN_NUMBER","")) in nids],
+        "approved":   [p for p in plans if "בתוקף" in str(p.get("STATION_DESC","")) or "אושרה" in str(p.get("STATION_DESC",""))],
+        "deposited":  [p for p in plans if "הפקדה" in str(p.get("STATION_DESC",""))],
+        "rejected":   [p for p in plans if "סירוב" in str(p.get("STATION_DESC","")) or "דחייה" in str(p.get("STATION_DESC",""))],
+        "total": len(plans), "new_count": len(nids),
+    }
+
+CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
+:root{--bg:#0e1117;--sf:#161b27;--br:#252d3d;--ac:#3b82f6;--gn:#22c55e;--yw:#eab308;--rd:#ef4444;--tx:#e2e8f0;--mt:#64748b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);padding:20px 14px}
+.hd{text-align:center;margin-bottom:26px}.hd h1{font-size:1.8rem;font-weight:800;color:#fff}
+.hd p{color:var(--mt);font-size:.85rem;margin-top:4px}
+.stats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:26px}
+.sc{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:14px 18px;text-align:center;flex:1;min-width:100px}
+.sc .n{font-size:1.8rem;font-weight:800}.sc .l{font-size:.7rem;color:var(--mt);margin-top:3px}
+.blue{color:var(--ac)}.green{color:var(--gn)}.yellow{color:var(--yw)}.red{color:var(--rd)}
+.section{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:18px;margin-bottom:16px}
+.section.hl-blue{border-color:var(--ac)}.section.hl-green{border-color:var(--gn)}
+.section h2{font-size:.95rem;font-weight:700;margin-bottom:11px;padding-bottom:9px;border-bottom:1px solid var(--br)}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th{color:var(--mt);font-weight:600;text-align:right;padding:6px 8px;border-bottom:1px solid var(--br)}
+td{padding:7px 8px;border-bottom:1px solid #1a2030;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:600}
+.badge.approved{background:rgba(34,197,94,.15);color:var(--gn)}
+.badge.deposited{background:rgba(234,179,8,.15);color:var(--yw)}
+.badge.rejected{background:rgba(239,68,68,.15);color:var(--rd)}
+.badge.other{background:rgba(100,116,139,.2);color:var(--mt)}
+.pl{color:var(--ac);text-decoration:none}.pl:hover{text-decoration:underline}
+.empty{color:var(--mt);font-style:italic;padding:14px;text-align:center;display:block}
+.ft{text-align:center;color:var(--mt);font-size:.72rem;margin-top:22px}
+.ft a{color:var(--ac)}
+"""
+
+def pr(items, mx=25):
+    if not items: return "<tr><td colspan='4' class='empty'>אין רשומות</td></tr>"
+    out = ""
+    for p in items[:mx]:
+        num=p.get("PLAN_NUMBER","—"); name=p.get("PLAN_NAME","—"); stat=p.get("STATION_DESC","—"); date=ts_to_date(p.get("LAST_UPDATE"))
+        cls="approved" if "בתוקף" in stat or "אושרה" in stat else "deposited" if "הפקדה" in stat else "rejected" if "סירוב" in stat or "דחייה" in stat else "other"
+        out += f"<tr><td><a href='https://mavat.iplan.gov.il/SV4/1/{num}' target='_blank' class='pl'>{num}</a></td><td>{name}</td><td><span class='badge {cls}'>{stat}</span></td><td>{date}</td></tr>"
+    return out
+
+def mr(items):
+    if not items: return "<tr><td colspan='3' class='empty'>לא נמצאו ישיבות (ייתכן חסימה)</td></tr>"
+    out = ""
+    for m in items[:20]:
+        icon = "📄" if m.get("is_pdf") else "🗓️"
+        out += f"<tr><td>{icon}</td><td><a href='{m.get('source_url','#')}' target='_blank' class='pl'>{m.get('text','—')[:120]}</a></td><td>{m.get('date','—')}</td></tr>"
+    return out
+
+def dr(items):
+    if not items: return "<tr><td colspan='3' class='empty'>אין החלטות</td></tr>"
+    out = ""
+    for d in items[:20]:
+        out += f"<tr><td>{d.get('PLAN_NAME') or d.get('OBJECT_NAME','—')}</td><td>{d.get('COMMITTEE_NAME','—')}</td><td>{ts_to_date(d.get('LAST_UPDATE'))}</td></tr>"
+    return out
+
+def nbhd_html(plans):
+    out = ""
+    for nbhd in CONFIG["watch_neighborhoods"]:
+        items = filter_nbhd(plans, nbhd)
+        if items:
+            out += f"<section class='section'><h2>📍 {nbhd} – {len(items)} תכניות</h2><table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>עדכון</th></tr></thead><tbody>{pr(items)}</tbody></table></section>"
+    if not out:
+        out = "<section class='section'><h2>📍 שכונות במעקב</h2><span class='empty'>לא נמצאו תכניות בשכונות הנבחרות</span></section>"
+    return out
+
+def build_report(plans, decisions, meetings, permits, changes):
+    today = datetime.now().strftime("%d/%m/%Y %H:%M")
+    new_s = f"<section class='section hl-blue'><h2>🆕 חדשות מאז אתמול ({len(changes['new_plans'])})</h2><table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>עדכון</th></tr></thead><tbody>{pr(changes['new_plans'])}</tbody></table></section>" if changes["new_plans"] else ""
+    permit_s = ""
+    if permits:
+        prows = "".join(f"<tr><td>{p.get('permit_number','—')}</td><td>{p.get('address','—')}</td><td>{p.get('status','—')}</td><td>{p.get('date','—')}</td></tr>" for p in permits[:20])
+        permit_s = f"<section class='section'><h2>📄 היתרי בנייה – Complot</h2><table><thead><tr><th>מספר</th><th>כתובת</th><th>סטטוס</th><th>תאריך</th></tr></thead><tbody>{prows}</tbody></table></section>"
+
+    return f"""<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>דוח ועדה חיפה {today}</title><style>{CSS}</style></head><body>
+<div class="hd"><h1>🏗️ דוח ועדה מקומית – חיפה</h1><p>עודכן: {today} | GitHub Actions</p></div>
+<div class="stats">
+  <div class="sc"><div class="n blue">{changes['total']}</div><div class="l">תכניות</div></div>
+  <div class="sc"><div class="n green">{len(changes['approved'])}</div><div class="l">מאושרות</div></div>
+  <div class="sc"><div class="n yellow">{len(changes['deposited'])}</div><div class="l">בהפקדה</div></div>
+  <div class="sc"><div class="n red">{len(changes['rejected'])}</div><div class="l">נדחו</div></div>
+  <div class="sc"><div class="n blue">{changes['new_count']}</div><div class="l">חדשות היום</div></div>
+  <div class="sc"><div class="n blue">{len(meetings)}</div><div class="l">ישיבות</div></div>
+</div>
+{new_s}{nbhd_html(plans)}
+<section class="section hl-green"><h2>🗓️ ישיבות ועדה ופרוטוקולים – Complot</h2><table><thead><tr><th></th><th>נושא</th><th>תאריך</th></tr></thead><tbody>{mr(meetings)}</tbody></table></section>
+<section class="section"><h2>✅ תכניות שאושרו</h2><table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>תאריך</th></tr></thead><tbody>{pr(changes['approved'])}</tbody></table></section>
+<section class="section"><h2>📋 בהפקדה – ניתן להגיש התנגדויות</h2><table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>תאריך</th></tr></thead><tbody>{pr(changes['deposited'])}</tbody></table></section>
+<section class="section"><h2>❌ נדחו / סורבו</h2><table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>תאריך</th></tr></thead><tbody>{pr(changes['rejected'])}</tbody></table></section>
+<section class="section"><h2>🗓️ דיוני ועדה – מבאת</h2><table><thead><tr><th>נושא</th><th>ועדה</th><th>תאריך</th></tr></thead><tbody>{dr(decisions)}</tbody></table></section>
+{permit_s}
+<div class="ft"><p><a href="https://mavat.iplan.gov.il">מבאת</a> · <a href="http://haifa.complot.co.il">Complot חיפה</a> · <a href="https://www.haifa.muni.il">עיריית חיפה</a></p><p style="margin-top:5px">הדוח הבא: מחר ב-08:00</p></div>
+</body></html>"""
+
+def send_email(subject, html):
+    cfg = CONFIG["email"]
+    if not cfg["enabled"] or not cfg["sender"]:
+        log("מייל לא מוגדר")
+        return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = cfg["sender"]
+        msg["To"]      = cfg["recipient"]
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP(cfg["smtp_server"], cfg["smtp_port"]) as s:
+            s.starttls()
+            s.login(cfg["sender"], cfg["password"])
+            s.sendmail(cfg["sender"], cfg["recipient"], msg.as_string())
+        log("מייל נשלח!")
+    except Exception as e:
+        log(f"שגיאת מייל: {e}")
+
+def main():
+    CONFIG["data_dir"].mkdir(exist_ok=True)
+    log("="*50)
+    log(f"דוח יומי – ועדה מקומית חיפה v2")
+    log(f"{datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    log("="*50)
+    cache     = load_cache()
+    plans     = fetch_mavat_plans(30)
+    decisions = fetch_mavat_decisions(30)
+    meetings  = fetch_complot_meetings()
+    time.sleep(2)
+    permits   = fetch_complot_permits()
+    changes   = detect_changes(plans, cache)
+    log(f"חדשות:{changes['new_count']} | מאושרות:{len(changes['approved'])} | הפקדה:{len(changes['deposited'])} | דחויות:{len(changes['rejected'])} | ישיבות:{len(meetings)}")
+    html = build_report(plans, decisions, meetings, permits, changes)
+    CONFIG["report_html"].write_text(html, encoding="utf-8")
+    cache["plan_ids"] = [str(p.get("PLAN_NUMBER","")) for p in plans]
+    cache["last_run"] = datetime.now().isoformat()
+    save_cache(cache)
+    subj = f"דוח ועדה חיפה {datetime.now().strftime('%d/%m/%Y')} – {changes['new_count']} חדשות | {len(changes['approved'])} מאושרות | {len(meetings)} ישיבות"
+    send_email(subj, html)
+    log("סיום!")
+
+if __name__ == "__main__":
+    main()
