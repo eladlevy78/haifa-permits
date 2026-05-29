@@ -1,41 +1,24 @@
 #!/usr/bin/env python3
-"""haifa_daily_digest.py v2 ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”"""
+"""
+haifa_daily_digest.py v3
+׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”
+׳׳•׳’׳™׳§׳” ׳׳‘׳•׳¡׳¡׳× ׳’׳™׳׳•׳™ ׳׳׳™׳×׳™ ׳©׳ ׳׳‘׳ ׳” ׳”׳׳×׳¨
+"""
 
-import requests, json, os, time, smtplib, re, ssl
+import requests, json, os, time, smtplib, re, base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ׳×׳™׳§׳•׳ SSL ׳׳©׳¨׳×׳™׳ ׳׳׳©׳׳×׳™׳™׳ ׳™׳©׳ ׳™׳
-import requests.adapters
-from urllib3.util.ssl_ import create_urllib3_context
-
-class LegacySSLAdapter(requests.adapters.HTTPAdapter):
-    def init_poolmanager(self, *args, **kwargs):
-        ctx = create_urllib3_context()
-        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
-        ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
-        kwargs["ssl_context"] = ctx
-        return super().init_poolmanager(*args, **kwargs)
-
-def make_session():
-    s = requests.Session()
-    s.mount("https://", LegacySSLAdapter())
-    s.headers.update(HEADERS)
-    return s
-
+# ג”€ג”€ ׳”׳’׳“׳¨׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 CONFIG = {
-    "city_code": "6700",
-    "watch_neighborhoods": [],
-    "watch_streets": [],
     "data_dir":    Path("./haifa_data"),
     "cache_file":  Path("./haifa_data/cache.json"),
     "report_html": Path("./haifa_data/daily_report.html"),
     "log_file":    Path("./haifa_data/digest.log"),
+    "days_back":   30,
     "email": {
         "enabled":    True,
         "smtp_server": "smtp.gmail.com",
@@ -46,19 +29,23 @@ CONFIG = {
     }
 }
 
+COMPLOT_BASE = "https://haifa.complot.co.il"
+ARCHIVE_BASE = "https://archive.gis-net.co.il"
+SITE_ID      = "16"
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
-    "Referer": "http://haifa.complot.co.il/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "Accept-Language": "he-IL,he;q=0.9",
+    "Referer": COMPLOT_BASE + "/",
 }
 
+# ג”€ג”€ ׳¢׳–׳¨׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
-    line = f"[{ts}] {msg}"
-    print(line)
+    print(f"[{ts}] {msg}")
     CONFIG["log_file"].parent.mkdir(exist_ok=True)
     with open(CONFIG["log_file"], "a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(f"[{ts}] {msg}\n")
 
 def load_cache():
     if CONFIG["cache_file"].exists():
@@ -66,127 +53,157 @@ def load_cache():
             return json.load(f)
     return {}
 
-def save_cache(cache):
+def save_cache(c):
     CONFIG["cache_file"].parent.mkdir(exist_ok=True)
     with open(CONFIG["cache_file"], "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+        json.dump(c, f, ensure_ascii=False, indent=2)
 
-def ts_to_date(ts):
-    try:
-        if ts: return datetime.fromtimestamp(int(ts)/1000).strftime("%d/%m/%Y")
-    except: pass
-    return "/"
-
-IPLAN = "http://ags.iplan.gov.il/arcgisiplan/rest/services/PlanningPublic/Xplan/MapServer"
-
-def fetch_mavat_plans(days_back=30):
-    log("׳׳‘׳׳× ג€“ ׳×׳›׳ ׳™׳•׳×...")
-    cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
-    try:
-        r = requests.get(f"{IPLAN}/1/query", params={
-            "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
-            "outFields": "PLAN_NUMBER,PLAN_NAME,STATION_DESC,LAST_UPDATE,COMMITTEE_NAME",
-            "returnGeometry": "false", "f": "json",
-            "resultRecordCount": 200, "orderByFields": "LAST_UPDATE DESC",
-        }, timeout=20)
-        feats = r.json().get("features",[])
-        log(f"  {len(feats)} ׳×׳›׳ ׳™׳•׳×")
-        return [f["attributes"] for f in feats]
-    except Exception as e:
-        log(f"  ׳©׳’׳™׳׳”: {e}")
-        return []
-
-def fetch_mavat_decisions(days_back=30):
-    log("׳׳‘׳׳× ג€“ ׳“׳™׳•׳ ׳™׳...")
-    cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
-    try:
-        r = requests.get(f"{IPLAN}/4/query", params={
-            "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
-            "outFields": "*", "returnGeometry": "false", "f": "json",
-            "resultRecordCount": 100,
-        }, timeout=20)
-        feats = r.json().get("features",[])
-        log(f"  {len(feats)} ׳”׳—׳׳˜׳•׳×")
-        return [f["attributes"] for f in feats]
-    except Exception as e:
-        log(f"  ׳©׳’׳™׳׳”: {e}")
-        return []
-
-COMPLOT_SITE_ID = "16"
-
-def fetch_complot_meetings():
-    """׳©׳•׳׳£ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳” ׳-Complot ג€“ API ׳™׳©׳™׳¨"""
-    log("Complot ג€“ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳” (API)...")
-    meetings = []
+# ג”€ג”€ ׳©׳׳™׳₪׳× ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def fetch_meetings(days_back=30):
+    """׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳-Complot API"""
+    log("Complot ג€“ ׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳×...")
     today = datetime.now()
-    fd = (today - timedelta(days=30)).strftime("%d/%m/%Y")
+    fd = (today - timedelta(days=days_back)).strftime("%d/%m/%Y")
     td = today.strftime("%d/%m/%Y")
 
-    # ׳ ׳™׳¡׳™׳•׳ API ׳™׳©׳™׳¨ (׳”׳₪׳¨׳׳˜׳¨׳™׳ ׳׳”-URL ׳©׳¡׳™׳₪׳§ ׳”׳׳©׳×׳׳©)
-    api_urls = [
-        f"https://haifa.complot.co.il/newengine/api/meetings/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&v=0&fd={fd}&td={td}&l=true",
-        f"https://haifa.complot.co.il/COMPLOTServices/MeetingsService.svc/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&fd={fd}&td={td}",
-        f"https://haifa.complot.co.il/newengine/Services/MeetingsService.svc/json/GetMeetingByDate?siteid={COMPLOT_SITE_ID}&fd={fd}&td={td}&v=0",
-    ]
-    for url in api_urls:
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                items = data if isinstance(data, list) else data.get("d", data.get("meetings", data.get("results", [])))
-                for item in items:
-                    meetings.append({
-                        "text":       item.get("MeetingTitle") or item.get("Title") or item.get("title", "׳™׳©׳™׳‘׳”"),
-                        "date":       item.get("MeetingDate") or item.get("Date") or item.get("date", ""),
-                        "source_url": item.get("DocumentUrl") or item.get("Url") or item.get("url", "#"),
-                        "is_pdf":     True,
-                        "raw":        item
-                    })
-                if meetings:
-                    log(f"  {len(meetings)} ׳™׳©׳™׳‘׳•׳× ׳-API")
-                    return meetings
-        except Exception as e:
-            log(f"  API {url}: {e}")
-
-    # ׳ ׳™׳¡׳™׳•׳ HTML ׳¢׳ session + cookies
     session = requests.Session()
     session.headers.update(HEADERS)
-    try:
-        session.get("https://haifa.complot.co.il/", timeout=10)
-        time.sleep(1)
-        r = session.get("https://haifa.complot.co.il/yeshivot/", timeout=15)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            for link in soup.find_all("a", href=True):
-                href = link["href"]
-                lt   = link.get_text(strip=True)
-                if ".pdf" in href.lower() or any(x in lt for x in ["׳™׳©׳™׳‘׳”","׳₪׳¨׳•׳˜׳•׳§׳•׳","׳”׳—׳׳˜׳•׳×"]):
-                    full = href if href.startswith("http") else "https://haifa.complot.co.il" + href
-                    dm   = re.search(r'\d{1,2}[./]\d{1,2}[./]\d{2,4}', lt + href)
-                    meetings.append({
-                        "text":       lt or href,
-                        "date":       dm.group() if dm else today.strftime("%d/%m/%Y"),
-                        "source_url": full,
-                        "is_pdf":     ".pdf" in href.lower()
-                    })
-            if meetings:
-                log(f"  {len(meetings)} ׳™׳©׳™׳‘׳•׳× ׳-HTML")
-                return meetings
-    except Exception as e:
-        log(f"  HTML: {e}")
 
-    log("  Complot ׳™׳©׳™׳‘׳•׳× ג€“ ׳׳ ׳ ׳’׳™׳©")
+    # ׳˜׳¢׳ ׳“׳£ ׳¨׳׳©׳™ ׳׳§׳‘׳׳× cookies
+    try:
+        session.get(COMPLOT_BASE + "/yeshivot/", timeout=10)
+        time.sleep(1)
+    except:
+        pass
+
+    # ׳©׳׳•׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳׳”-HTML (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳• ׳‘׳“׳₪׳“׳₪׳)
+    url = f"{COMPLOT_BASE}/yeshivot/#search/GetMeetingByDate&siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true&arguments=siteid,v,fd,td,l"
+    try:
+        r = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=15)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # ׳—׳₪׳© ׳׳× ׳”׳ ׳×׳•׳ ׳™׳ ׳׳”-script ׳׳• ׳׳”-API ׳”׳₪׳ ׳™׳׳™
+        # ׳ ׳¡׳” ׳׳× ׳”-API ׳”׳™׳“׳•׳¢
+        api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingByDate?siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true"
+        r2 = session.get(api_url, timeout=15)
+        if r2.status_code == 200:
+            try:
+                data = r2.json()
+                items = data if isinstance(data, list) else data.get("d", data.get("meetings", []))
+                if items:
+                    log(f"  API: {len(items)} ׳™׳©׳™׳‘׳•׳×")
+                    return parse_api_meetings(items)
+            except:
+                pass
+    except Exception as e:
+        log(f"  ׳©׳’׳™׳׳”: {e}")
+
+    # fallback: ׳ ׳¡׳” URL ׳™׳©׳™׳¨ ׳¢׳ ׳”׳₪׳¨׳׳˜׳¨׳™׳
+    try:
+        r3 = session.get(
+            f"{COMPLOT_BASE}/newengine/Pages/meetings2.aspx",
+            params={"siteid": SITE_ID, "fd": fd, "td": td},
+            timeout=15
+        )
+        if r3.status_code == 200:
+            return parse_html_meetings(r3.text, fd, td)
+    except Exception as e:
+        log(f"  fallback ׳©׳’׳™׳׳”: {e}")
+
+    log("  ׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×")
     return []
 
-def summarize_pdf_with_claude(pdf_url: str) -> str:
+def parse_api_meetings(items):
+    meetings = []
+    for item in items:
+        meetings.append({
+            "meetingId":   str(item.get("MeetingId") or item.get("meetingId") or item.get("id","")),
+            "committeeId": str(item.get("CommitteeId") or item.get("committeeId","")),
+            "committee":   item.get("CommitteeName") or item.get("committeeName",""),
+            "date":        item.get("MeetingDate") or item.get("date",""),
+        })
+    return meetings
+
+def parse_html_meetings(html, fd, td):
+    meetings = []
+    soup = BeautifulSoup(html, "html.parser")
+    for row in soup.select("tr"):
+        cells = row.find_all("td")
+        link  = row.find("a", href=re.compile(r"getMeeting"))
+        if not link or len(cells) < 3: continue
+        match = re.search(r"getMeeting\((\d+),(\d+)\)", link["href"])
+        if not match: continue
+        meetings.append({
+            "meetingId":   match.group(2),
+            "committeeId": match.group(1),
+            "committee":   cells[1].get_text(strip=True),
+            "date":        cells[2].get_text(strip=True),
+        })
+    return meetings
+
+# ג”€ג”€ ׳©׳׳™׳₪׳× PDFs ׳©׳ ׳™׳©׳™׳‘׳” ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
+    """׳©׳•׳׳£ ׳§׳™׳©׳•׳¨׳™ PDF ׳׳™׳©׳™׳‘׳” ׳¡׳₪׳¦׳™׳₪׳™׳×"""
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    try:
+        # ׳›׳×׳•׳‘׳× ׳“׳£ ׳”׳™׳©׳™׳‘׳” (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳•)
+        url = f"{COMPLOT_BASE}/yeshivot/#meeting/{committee_id}/{meeting_id}"
+        # ׳”-API ׳”׳׳׳™׳×׳™ ׳©׳׳—׳–׳™׳¨ ׳׳× ׳׳¡׳׳›׳™ ׳”׳™׳©׳™׳‘׳”
+        api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingDocuments?committeeId={committee_id}&meetingId={meeting_id}&siteid={SITE_ID}"
+
+        r = session.get(api_url, timeout=15)
+        if r.status_code == 200:
+            try:
+                docs = r.json()
+                if isinstance(docs, list):
+                    return [{"text": d.get("Title","׳׳¡׳׳"), "href": d.get("Url",""), "committee": committee, "date": date, "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in d.get("Title","")} for d in docs if d.get("Url")]
+            except: pass
+
+        # fallback ג€“ HTML ׳™׳©׳™׳¨
+        r2 = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=10)
+        time.sleep(0.5)
+        # ׳ ׳‘׳ ׳” URL ׳›׳׳• ׳©׳”-JS ׳¢׳•׳©׳”
+        page_url = f"{COMPLOT_BASE}/yeshivot/?committee={committee_id}&meeting={meeting_id}"
+        r3 = session.get(page_url, timeout=15)
+        soup = BeautifulSoup(r3.text, "html.parser")
+        pdfs = []
+        for a in soup.find_all("a", href=re.compile(r"\.pdf", re.I)):
+            href = a["href"]
+            if not href.startswith("http"):
+                href = COMPLOT_BASE + href
+            pdfs.append({
+                "text": a.get_text(strip=True) or "׳׳¡׳׳",
+                "href": href,
+                "committee": committee,
+                "date": date,
+                "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in a.get_text()
+            })
+        return pdfs
+    except Exception as e:
+        log(f"  PDF ׳©׳’׳™׳׳” ({committee_id}/{meeting_id}): {e}")
+        return []
+
+# ג”€ג”€ ׳¡׳™׳›׳•׳ PDF ׳¢׳ Claude ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def summarize_pdf(pdf_url, committee, date):
     """׳׳•׳¨׳™׳“ PDF ׳•׳׳¡׳›׳ ׳¢׳ Claude API"""
     try:
+        log(f"  ׳׳¡׳›׳ PDF: {pdf_url[-50:]}")
         r = requests.get(pdf_url, headers=HEADERS, timeout=30)
         if r.status_code != 200:
+            log(f"  PDF ׳׳ ׳ ׳’׳™׳© (status {r.status_code})")
             return ""
-        import base64
+
+        content_type = r.headers.get("Content-Type", "")
+        if "pdf" not in content_type.lower() and not pdf_url.lower().endswith(".pdf"):
+            log(f"  ׳׳ PDF: {content_type}")
+            return ""
+
         pdf_b64 = base64.b64encode(r.content).decode()
-        resp = requests.post("https://api.anthropic.com/v1/messages",
+
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
             headers={"Content-Type": "application/json"},
             json={
                 "model": "claude-sonnet-4-20250514",
@@ -194,163 +211,138 @@ def summarize_pdf_with_claude(pdf_url: str) -> str:
                 "messages": [{
                     "role": "user",
                     "content": [
-                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
-                        {"type": "text", "text": "׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳ ׳™׳©׳™׳‘׳× ׳”׳•׳¢׳“׳”. ׳›׳×׳•׳‘ ׳¨׳©׳™׳׳× ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳” (׳¢׳“ 5 ׳ ׳§׳•׳“׳•׳×). ׳”׳×׳׳§׳“ ׳‘׳”׳—׳׳˜׳•׳× ׳׳¢׳©׳™׳•׳× ׳‘׳׳‘׳“."}
+                        {
+                            "type": "document",
+                            "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}
+                        },
+                        {
+                            "type": "text",
+                            "text": f"׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳/׳׳¡׳׳ ׳–׳” ׳©׳ {committee} ׳׳×׳׳¨׳™׳ {date}. ׳›׳×׳•׳‘ ׳¢׳“ 6 ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳•׳× ׳•׳׳¢׳©׳™׳•׳×. ׳׳ ׳–׳” ׳¡׳“׳¨ ׳™׳•׳ ׳•׳׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳, ׳¦׳™׳™׳ ׳׳× ׳”׳ ׳•׳©׳׳™׳ ׳”׳¢׳™׳§׳¨׳™׳™׳ ׳©׳¢׳ ׳”׳₪׳¨׳§."
+                        }
                     ]
                 }]
             },
-            timeout=30
+            timeout=60
         )
+
         if resp.status_code == 200:
             content = resp.json().get("content", [])
-            return next((c["text"] for c in content if c.get("type") == "text"), "")
+            summary = next((c["text"] for c in content if c.get("type") == "text"), "")
+            log(f"  ׳¡׳•׳›׳ ׳‘׳”׳¦׳׳—׳” ({len(summary)} ׳×׳•׳•׳™׳)")
+            return summary
+        else:
+            log(f"  Claude API ׳©׳’׳™׳׳”: {resp.status_code}")
+            return ""
+
     except Exception as e:
-        log(f"  ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳ PDF: {e}")
-    return ""
+        log(f"  ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳: {e}")
+        return ""
 
-def fetch_complot_permits():
-    log("Complot ג€“ ׳”׳™׳×׳¨׳™׳...")
-    results = []
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    for url in ["http://haifa.complot.co.il/newengine/Pages/taba2.aspx", "https://haifa.complot.co.il/Rishuy_bnia/"]:
-        try:
-            r = session.get(url, timeout=15)
-            if r.status_code != 200: continue
-            soup = BeautifulSoup(r.text, "html.parser")
-            for row in soup.select("tr"):
-                cols = row.find_all("td")
-                if len(cols) >= 3:
-                    results.append({"permit_number": cols[0].get_text(strip=True), "address": cols[1].get_text(strip=True), "status": cols[2].get_text(strip=True), "date": cols[3].get_text(strip=True) if len(cols)>3 else ""})
-            if results:
-                log(f"  {len(results)} ׳”׳™׳×׳¨׳™׳")
-                break
-        except Exception as e:
-            log(f"  {e}")
-    if not results: log("  Complot ׳”׳™׳×׳¨׳™׳ ג€“ ׳׳ ׳ ׳’׳™׳©")
-    return results
+# ג”€ג”€ ׳‘׳ ׳™׳™׳× ׳“׳•׳— HTML ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def build_html(meetings_with_docs, today_str):
+    total_meetings = len(meetings_with_docs)
+    total_pdfs     = sum(len(m["docs"]) for m in meetings_with_docs)
+    total_protocols= sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
 
-NBHD = {
-    "׳׳—׳•׳–׳”":       ["׳׳—׳•׳–׳”","׳•׳¨׳“׳™׳”","׳¨׳׳× ׳׳׳׳•׳’׳™"],
-    "׳”׳›׳¨׳׳":       ["׳”׳›׳¨׳׳","׳›׳¨׳׳","׳’׳׳•׳׳”"],
-    "׳¨׳׳•׳× ׳›׳¨׳׳":  ["׳¨׳׳•׳× ׳›׳¨׳׳","׳¨׳׳•׳×"],
-    "׳ ׳•׳•׳” ׳©׳׳ ׳":  ["׳ ׳•׳•׳” ׳©׳׳ ׳","׳§׳¨׳™׳™׳× ׳׳׳™׳”׳•"],
-    "׳”׳“׳¨":         ["׳”׳“׳¨","׳‘׳™׳׳׳™׳§"],
-}
+    sections = ""
+    for m in meetings_with_docs:
+        docs_html = ""
+        for d in m["docs"]:
+            summary_html = ""
+            if d.get("summary"):
+                lines = d["summary"].replace("ג€¢","").strip().split("\n")
+                bullets = "".join(f"<li>{l.strip().lstrip('- ג€¢*').strip()}</li>" for l in lines if l.strip())
+                summary_html = f"<ul class='summary'>{bullets}</ul>"
+            badge = "<span class='badge proto'>׳₪׳¨׳•׳˜׳•׳§׳•׳</span>" if d.get("is_protocol") else "<span class='badge agenda'>׳¡׳“׳¨ ׳™׳•׳</span>"
+            docs_html += f"""
+            <div class='doc'>
+              <div class='doc-header'>
+                {badge}
+                <a href='{d["href"]}' target='_blank' class='doc-link'>{d["text"]}</a>
+              </div>
+              {summary_html}
+            </div>"""
 
-def filter_nbhd(plans, nbhd):
-    kws = NBHD.get(nbhd, [nbhd])
-    return [p for p in plans if any(kw in str(p.get("PLAN_NAME",""))+str(p.get("COMMITTEE_NAME","")) for kw in kws)]
+        if not docs_html:
+            docs_html = "<p class='no-docs'>׳׳™׳ ׳׳¡׳׳›׳™׳ ׳–׳׳™׳ ׳™׳</p>"
 
-def detect_changes(plans, cache):
-    prev = set(cache.get("plan_ids",[]))
-    cur  = {str(p.get("PLAN_NUMBER","")) for p in plans}
-    nids = cur - prev
-    return {
-        "new_plans":  [p for p in plans if str(p.get("PLAN_NUMBER","")) in nids],
-        "approved":   [p for p in plans if "׳‘׳×׳•׳§׳£" in str(p.get("STATION_DESC","")) or "׳׳•׳©׳¨׳”" in str(p.get("STATION_DESC",""))],
-        "deposited":  [p for p in plans if "׳”׳₪׳§׳“׳”" in str(p.get("STATION_DESC",""))],
-        "rejected":   [p for p in plans if "׳¡׳™׳¨׳•׳‘" in str(p.get("STATION_DESC","")) or "׳“׳—׳™׳™׳”" in str(p.get("STATION_DESC",""))],
-        "total": len(plans), "new_count": len(nids),
-    }
+        sections += f"""
+        <section class='meeting-card'>
+          <div class='meeting-header'>
+            <span class='committee'>{m["committee"]}</span>
+            <span class='date'>{m["date"]}</span>
+          </div>
+          {docs_html}
+        </section>"""
 
-CSS = """
+    return f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” ג€“ {today_str}</title>
+<style>
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
-:root{--bg:#0e1117;--sf:#161b27;--br:#252d3d;--ac:#3b82f6;--gn:#22c55e;--yw:#eab308;--rd:#ef4444;--tx:#e2e8f0;--mt:#64748b}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);padding:20px 14px}
-.hd{text-align:center;margin-bottom:26px}.hd h1{font-size:1.8rem;font-weight:800;color:#fff}
-.hd p{color:var(--mt);font-size:.85rem;margin-top:4px}
-.stats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:26px}
-.sc{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:14px 18px;text-align:center;flex:1;min-width:100px}
-.sc .n{font-size:1.8rem;font-weight:800}.sc .l{font-size:.7rem;color:var(--mt);margin-top:3px}
-.blue{color:var(--ac)}.green{color:var(--gn)}.yellow{color:var(--yw)}.red{color:var(--rd)}
-.section{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:18px;margin-bottom:16px}
-.section.hl-blue{border-color:var(--ac)}.section.hl-green{border-color:var(--gn)}
-.section h2{font-size:.95rem;font-weight:700;margin-bottom:11px;padding-bottom:9px;border-bottom:1px solid var(--br)}
-table{width:100%;border-collapse:collapse;font-size:.82rem}
-th{color:var(--mt);font-weight:600;text-align:right;padding:6px 8px;border-bottom:1px solid var(--br)}
-td{padding:7px 8px;border-bottom:1px solid #1a2030;vertical-align:middle}
-tr:last-child td{border-bottom:none}
-.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:600}
-.badge.approved{background:rgba(34,197,94,.15);color:var(--gn)}
-.badge.deposited{background:rgba(234,179,8,.15);color:var(--yw)}
-.badge.rejected{background:rgba(239,68,68,.15);color:var(--rd)}
-.badge.other{background:rgba(100,116,139,.2);color:var(--mt)}
-.pl{color:var(--ac);text-decoration:none}.pl:hover{text-decoration:underline}
-.empty{color:var(--mt);font-style:italic;padding:14px;text-align:center;display:block}
-.ft{text-align:center;color:var(--mt);font-size:.72rem;margin-top:22px}
-.ft a{color:var(--ac)}
-"""
-
-def pr(items, mx=25):
-    if not items: return "<tr><td colspan='4' class='empty'>׳׳™׳ ׳¨׳©׳•׳׳•׳×</td></tr>"
-    out = ""
-    for p in items[:mx]:
-        num=p.get("PLAN_NUMBER","ג€”"); name=p.get("PLAN_NAME","ג€”"); stat=p.get("STATION_DESC","ג€”"); date=ts_to_date(p.get("LAST_UPDATE"))
-        cls="approved" if "׳‘׳×׳•׳§׳£" in stat or "׳׳•׳©׳¨׳”" in stat else "deposited" if "׳”׳₪׳§׳“׳”" in stat else "rejected" if "׳¡׳™׳¨׳•׳‘" in stat or "׳“׳—׳™׳™׳”" in stat else "other"
-        out += f"<tr><td><a href='https://mavat.iplan.gov.il/SV4/1/{num}' target='_blank' class='pl'>{num}</a></td><td>{name}</td><td><span class='badge {cls}'>{stat}</span></td><td>{date}</td></tr>"
-    return out
-
-def mr(items):
-    if not items: return "<tr><td colspan='3' class='empty'>׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× (׳™׳™׳×׳›׳ ׳—׳¡׳™׳׳”)</td></tr>"
-    out = ""
-    for m in items[:20]:
-        icon    = "נ“„" if m.get("is_pdf") else "נ—“ן¸"
-        summary = m.get("summary","")
-        summary_html = f"<div style='color:#94a3b8;font-size:.78rem;margin-top:4px;padding-right:8px'>{summary}</div>" if summary else ""
-        out += f"<tr><td>{icon}</td><td><a href='{m.get('source_url','#')}' target='_blank' class='pl'>{m.get('text','ג€”')[:120]}</a>{summary_html}</td><td>{m.get('date','ג€”')}</td></tr>"
-    return out
-
-def dr(items):
-    if not items: return "<tr><td colspan='3' class='empty'>׳׳™׳ ׳”׳—׳׳˜׳•׳×</td></tr>"
-    out = ""
-    for d in items[:20]:
-        out += f"<tr><td>{d.get('PLAN_NAME') or d.get('OBJECT_NAME','ג€”')}</td><td>{d.get('COMMITTEE_NAME','ג€”')}</td><td>{ts_to_date(d.get('LAST_UPDATE'))}</td></tr>"
-    return out
-
-def nbhd_html(plans):
-    out = ""
-    for nbhd in CONFIG["watch_neighborhoods"]:
-        items = filter_nbhd(plans, nbhd)
-        if items:
-            out += f"<section class='section'><h2>נ“ {nbhd} ג€“ {len(items)} ׳×׳›׳ ׳™׳•׳×</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳©׳ ׳×׳›׳ ׳™׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳¢׳“׳›׳•׳</th></tr></thead><tbody>{pr(items)}</tbody></table></section>"
-    if not out:
-        out = "<section class='section'><h2>נ“ ׳©׳›׳•׳ ׳•׳× ׳‘׳׳¢׳§׳‘</h2><span class='empty'>׳׳ ׳ ׳׳¦׳׳• ׳×׳›׳ ׳™׳•׳× ׳‘׳©׳›׳•׳ ׳•׳× ׳”׳ ׳‘׳—׳¨׳•׳×</span></section>"
-    return out
-
-def build_report(plans, decisions, meetings, permits, changes):
-    today = datetime.now().strftime("%d/%m/%Y %H:%M")
-    new_s = f"<section class='section hl-blue'><h2>נ†• ׳—׳“׳©׳•׳× ׳׳׳– ׳׳×׳׳•׳ ({len(changes['new_plans'])})</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳©׳ ׳×׳›׳ ׳™׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳¢׳“׳›׳•׳</th></tr></thead><tbody>{pr(changes['new_plans'])}</tbody></table></section>" if changes["new_plans"] else ""
-    permit_s = ""
-    if permits:
-        prows = "".join(f"<tr><td>{p.get('permit_number','ג€”')}</td><td>{p.get('address','ג€”')}</td><td>{p.get('status','ג€”')}</td><td>{p.get('date','ג€”')}</td></tr>" for p in permits[:20])
-        permit_s = f"<section class='section'><h2>נ“„ ׳”׳™׳×׳¨׳™ ׳‘׳ ׳™׳™׳” ג€“ Complot</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳›׳×׳•׳‘׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{prows}</tbody></table></section>"
-
-    return f"""<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {today}</title><style>{CSS}</style></head><body>
-<div class="hd"><h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1><p>׳¢׳•׳“׳›׳: {today} | GitHub Actions</p></div>
-<div class="stats">
-  <div class="sc"><div class="n blue">{changes['total']}</div><div class="l">׳×׳›׳ ׳™׳•׳×</div></div>
-  <div class="sc"><div class="n green">{len(changes['approved'])}</div><div class="l">׳׳׳•׳©׳¨׳•׳×</div></div>
-  <div class="sc"><div class="n yellow">{len(changes['deposited'])}</div><div class="l">׳‘׳”׳₪׳§׳“׳”</div></div>
-  <div class="sc"><div class="n red">{len(changes['rejected'])}</div><div class="l">׳ ׳“׳—׳•</div></div>
-  <div class="sc"><div class="n blue">{changes['new_count']}</div><div class="l">׳—׳“׳©׳•׳× ׳”׳™׳•׳</div></div>
-  <div class="sc"><div class="n blue">{len(meetings)}</div><div class="l">׳™׳©׳™׳‘׳•׳×</div></div>
+:root{{
+  --bg:#0e1117; --sf:#161b27; --br:#252d3d;
+  --ac:#3b82f6; --gn:#22c55e; --yw:#eab308;
+  --tx:#e2e8f0; --mt:#64748b;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);padding:24px 16px;max-width:860px;margin:0 auto}}
+.header{{text-align:center;margin-bottom:32px}}
+.header h1{{font-size:1.9rem;font-weight:800;color:#fff}}
+.header p{{color:var(--mt);font-size:.88rem;margin-top:5px}}
+.stats{{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:32px}}
+.stat{{background:var(--sf);border:1px solid var(--br);border-radius:12px;
+  padding:16px 22px;text-align:center;flex:1;min-width:110px}}
+.stat .n{{font-size:1.9rem;font-weight:800;color:var(--ac)}}
+.stat .l{{font-size:.72rem;color:var(--mt);margin-top:3px}}
+.meeting-card{{background:var(--sf);border:1px solid var(--br);border-radius:14px;
+  padding:20px;margin-bottom:18px}}
+.meeting-header{{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--br)}}
+.committee{{font-weight:700;font-size:1rem;color:#fff}}
+.date{{font-size:.82rem;color:var(--mt);background:#1e2535;
+  padding:3px 10px;border-radius:6px}}
+.doc{{background:#0e1522;border:1px solid #1e2d45;border-radius:10px;
+  padding:14px;margin-bottom:10px}}
+.doc:last-child{{margin-bottom:0}}
+.doc-header{{display:flex;align-items:center;gap:10px;margin-bottom:8px}}
+.badge{{font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px}}
+.badge.proto{{background:rgba(34,197,94,.15);color:var(--gn)}}
+.badge.agenda{{background:rgba(59,130,246,.15);color:var(--ac)}}
+.doc-link{{color:var(--ac);text-decoration:none;font-size:.88rem}}
+.doc-link:hover{{text-decoration:underline}}
+.summary{{padding-right:16px;margin-top:6px}}
+.summary li{{font-size:.83rem;color:#94a3b8;margin-bottom:4px;line-height:1.5}}
+.no-docs{{color:var(--mt);font-size:.82rem;font-style:italic}}
+.footer{{text-align:center;color:var(--mt);font-size:.74rem;margin-top:28px}}
+.footer a{{color:var(--ac)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1>
+  <p>׳¢׳•׳“׳›׳: {today_str} | {CONFIG['days_back']} ׳™׳׳™׳ ׳׳—׳¨׳•׳ ׳™׳</p>
 </div>
-{new_s}{nbhd_html(plans)}
-<section class="section hl-green"><h2>נ—“ן¸ ׳™׳©׳™׳‘׳•׳× ׳•׳¢׳“׳” ׳•׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳ ג€“ Complot</h2><table><thead><tr><th></th><th>׳ ׳•׳©׳</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{mr(meetings)}</tbody></table></section>
-<section class="section"><h2>ג… ׳×׳›׳ ׳™׳•׳× ׳©׳׳•׳©׳¨׳•</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳©׳ ׳×׳›׳ ׳™׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{pr(changes['approved'])}</tbody></table></section>
-<section class="section"><h2>נ“‹ ׳‘׳”׳₪׳§׳“׳” ג€“ ׳ ׳™׳×׳ ׳׳”׳’׳™׳© ׳”׳×׳ ׳’׳“׳•׳™׳•׳×</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳©׳ ׳×׳›׳ ׳™׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{pr(changes['deposited'])}</tbody></table></section>
-<section class="section"><h2>ג ׳ ׳“׳—׳• / ׳¡׳•׳¨׳‘׳•</h2><table><thead><tr><th>׳׳¡׳₪׳¨</th><th>׳©׳ ׳×׳›׳ ׳™׳×</th><th>׳¡׳˜׳˜׳•׳¡</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{pr(changes['rejected'])}</tbody></table></section>
-<section class="section"><h2>נ—“ן¸ ׳“׳™׳•׳ ׳™ ׳•׳¢׳“׳” ג€“ ׳׳‘׳׳×</h2><table><thead><tr><th>׳ ׳•׳©׳</th><th>׳•׳¢׳“׳”</th><th>׳×׳׳¨׳™׳</th></tr></thead><tbody>{dr(decisions)}</tbody></table></section>
-{permit_s}
-<div class="ft"><p><a href="https://mavat.iplan.gov.il">׳׳‘׳׳×</a> ֲ· <a href="http://haifa.complot.co.il">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://www.haifa.muni.il">׳¢׳™׳¨׳™׳™׳× ׳—׳™׳₪׳”</a></p><p style="margin-top:5px">׳”׳“׳•׳— ׳”׳‘׳: ׳׳—׳¨ ׳‘-08:00</p></div>
+<div class="stats">
+  <div class="stat"><div class="n">{total_meetings}</div><div class="l">׳™׳©׳™׳‘׳•׳×</div></div>
+  <div class="stat"><div class="n">{total_pdfs}</div><div class="l">׳׳¡׳׳›׳™׳</div></div>
+  <div class="stat"><div class="n">{total_protocols}</div><div class="l">׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳</div></div>
+</div>
+{sections if sections else '<p style="text-align:center;color:var(--mt)">׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× ׳‘׳×׳§׳•׳₪׳” ׳–׳•</p>'}
+<div class="footer">
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://mavat.iplan.gov.il">׳׳‘׳"׳×</a></p>
+  <p style="margin-top:5px">׳”׳“׳•׳— ׳”׳‘׳: ׳׳—׳¨ ׳‘-08:00 ׳׳•׳˜׳•׳׳˜׳™׳×</p>
+</div>
 </body></html>"""
 
+# ג”€ג”€ ׳©׳׳™׳—׳× ׳׳™׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def send_email(subject, html):
     cfg = CONFIG["email"]
     if not cfg["enabled"] or not cfg["sender"]:
-        log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨")
+        log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨ ג€“ ׳׳“׳׳’")
         return
     try:
         msg = MIMEMultipart("alternative")
@@ -366,37 +358,43 @@ def send_email(subject, html):
     except Exception as e:
         log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
 
+# ג”€ג”€ ׳¨׳׳©׳™ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def main():
     CONFIG["data_dir"].mkdir(exist_ok=True)
-    log("="*50)
-    log(f"׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳” v2")
-    log(f"{datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    log("="*50)
-    cache     = load_cache()
-    plans     = fetch_mavat_plans(30)
-    decisions = fetch_mavat_decisions(30)
-    meetings  = fetch_complot_meetings()
-    time.sleep(2)
-    permits   = fetch_complot_permits()
+    today_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    log("=" * 50)
+    log(f"׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳” v3")
+    log(f"{today_str}")
+    log("=" * 50)
 
-    # ׳¡׳™׳›׳•׳ PDFs ׳©׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳ ׳¢׳ Claude
-    log("׳׳¡׳›׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳...")
+    # 1. ׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×
+    meetings = fetch_meetings(CONFIG["days_back"])
+    log(f"׳ ׳׳¦׳׳• {len(meetings)} ׳™׳©׳™׳‘׳•׳×")
+
+    # 2. ׳©׳׳•׳£ PDFs ׳׳›׳ ׳™׳©׳™׳‘׳” ׳•׳¡׳›׳
+    meetings_with_docs = []
     for m in meetings:
-        if m.get("is_pdf") and m.get("source_url","#") != "#":
-            log(f"  ׳׳¡׳›׳: {m['text'][:50]}...")
-            summary = summarize_pdf_with_claude(m["source_url"])
-            if summary:
-                m["summary"] = summary
-                log(f"  ׳¡׳™׳›׳•׳ ׳”׳•׳©׳׳")
-            time.sleep(1)
-    changes   = detect_changes(plans, cache)
-    log(f"׳—׳“׳©׳•׳×:{changes['new_count']} | ׳׳׳•׳©׳¨׳•׳×:{len(changes['approved'])} | ׳”׳₪׳§׳“׳”:{len(changes['deposited'])} | ׳“׳—׳•׳™׳•׳×:{len(changes['rejected'])} | ׳™׳©׳™׳‘׳•׳×:{len(meetings)}")
-    html = build_report(plans, decisions, meetings, permits, changes)
+        log(f"׳™׳©׳™׳‘׳” {m['meetingId']} ג€“ {m['committee']} ({m['date']})")
+        docs = fetch_meeting_pdfs(m["committeeId"], m["meetingId"], m["committee"], m["date"])
+        log(f"  {len(docs)} ׳׳¡׳׳›׳™׳")
+
+        # ׳¡׳›׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳
+        for d in docs:
+            if d.get("is_protocol") and d.get("href"):
+                d["summary"] = summarize_pdf(d["href"], m["committee"], m["date"])
+                time.sleep(1)
+
+        meetings_with_docs.append({**m, "docs": docs})
+        time.sleep(0.5)
+
+    # 3. ׳‘׳ ׳” ׳“׳•׳—
+    html = build_html(meetings_with_docs, today_str)
     CONFIG["report_html"].write_text(html, encoding="utf-8")
-    cache["plan_ids"] = [str(p.get("PLAN_NUMBER","")) for p in plans]
-    cache["last_run"] = datetime.now().isoformat()
-    save_cache(cache)
-    subj = f"׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {datetime.now().strftime('%d/%m/%Y')} ג€“ {changes['new_count']} ׳—׳“׳©׳•׳× | {len(changes['approved'])} ׳׳׳•׳©׳¨׳•׳× | {len(meetings)} ׳™׳©׳™׳‘׳•׳×"
+    log(f"׳“׳•׳— ׳ ׳©׳׳¨: {CONFIG['report_html']}")
+
+    # 4. ׳©׳׳— ׳׳™׳™׳
+    total_p = sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
+    subj = f"נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {datetime.now().strftime('%d/%m/%Y')} ג€“ {len(meetings)} ׳™׳©׳™׳‘׳•׳× | {total_p} ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳"
     send_email(subj, html)
     log("׳¡׳™׳•׳!")
 
