@@ -1,234 +1,278 @@
 #!/usr/bin/env python3
 """
-🏗️ haifa_daily_digest.py
-סקריפט יומי לסיכום אישורי בנייה ודיוני ועדה בחיפה
-מקורות: מבא"ת (iplan) + complot חיפה
+haifa_daily_digest.py v3
+׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”
+׳׳•׳’׳™׳§׳” ׳׳‘׳•׳¡׳¡׳× ׳’׳™׳׳•׳™ ׳׳׳™׳×׳™ ׳©׳ ׳׳‘׳ ׳” ׳”׳׳×׳¨
 """
 
-import requests
-import json
-import os
-import hashlib
-import time
-import smtplib
+import requests, json, os, time, smtplib, re, base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
 
-# ─────────────────────────────────────────────
-# ⚙️  הגדרות
-# ─────────────────────────────────────────────
+# ג”€ג”€ ׳”׳’׳“׳¨׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 CONFIG = {
-    "city_code": "6700",
-    "city_name": "חיפה",
-    "watch_streets": ["ויטקין", "אחוזה", "הרצל"],   # ← ערוך לפי רצונך
-
     "data_dir":    Path("./haifa_data"),
     "cache_file":  Path("./haifa_data/cache.json"),
     "report_html": Path("./haifa_data/daily_report.html"),
     "log_file":    Path("./haifa_data/digest.log"),
-
+    "days_back":   30,
     "email": {
         "enabled":    True,
         "smtp_server": "smtp.gmail.com",
         "smtp_port":   587,
-        # נקרא מ-GitHub Secrets (או מסביבה מקומית)
         "sender":    os.environ.get("EMAIL_SENDER", ""),
         "password":  os.environ.get("EMAIL_PASSWORD", ""),
         "recipient": os.environ.get("EMAIL_RECIPIENT", ""),
     }
 }
 
-# ─────────────────────────────────────────────
-# 🔧  עזרים
-# ─────────────────────────────────────────────
+COMPLOT_BASE = "https://haifa.complot.co.il"
+ARCHIVE_BASE = "https://archive.gis-net.co.il"
+SITE_ID      = "16"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "Accept-Language": "he-IL,he;q=0.9",
+    "Referer": COMPLOT_BASE + "/",
+}
+
+# ג”€ג”€ ׳¢׳–׳¨׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
-    line = f"[{ts}] {msg}"
-    print(line)
+    print(f"[{ts}] {msg}")
     CONFIG["log_file"].parent.mkdir(exist_ok=True)
     with open(CONFIG["log_file"], "a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(f"[{ts}] {msg}\n")
 
-def load_cache() -> dict:
+def load_cache():
     if CONFIG["cache_file"].exists():
         with open(CONFIG["cache_file"], encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-def save_cache(cache: dict):
+def save_cache(c):
     CONFIG["cache_file"].parent.mkdir(exist_ok=True)
     with open(CONFIG["cache_file"], "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+        json.dump(c, f, ensure_ascii=False, indent=2)
 
-# ─────────────────────────────────────────────
-# 📡  מקור 1: מבא"ת – ArcGIS REST API
-# ─────────────────────────────────────────────
-IPLAN_BASE = "https://ags.iplan.gov.il/arcgisiplan/rest/services/PlanningPublic/Xplan/MapServer"
+# ג”€ג”€ ׳©׳׳™׳₪׳× ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def fetch_meetings(days_back=30):
+    """׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳-Complot API"""
+    log("Complot ג€“ ׳©׳•׳׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳×...")
+    today = datetime.now()
+    fd = (today - timedelta(days=days_back)).strftime("%d/%m/%Y")
+    td = today.strftime("%d/%m/%Y")
 
-def fetch_mavat_plans(days_back=30) -> list:
-    log("🔍 שולף נתונים ממבא\"ת...")
-    cutoff = int((datetime.now() - timedelta(days=days_back)).timestamp() * 1000)
-    url = f"{IPLAN_BASE}/1/query"
-    params = {
-        "where": f"CITY_CODE='{CONFIG['city_code']}' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
-        "outFields": "PLAN_NUMBER,PLAN_NAME,STATION_DESC,LAST_UPDATE,COMMITTEE_NAME",
-        "returnGeometry": "false",
-        "f": "json",
-        "resultRecordCount": 200,
-        "orderByFields": "LAST_UPDATE DESC",
-    }
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    # ׳˜׳¢׳ ׳“׳£ ׳¨׳׳©׳™ ׳׳§׳‘׳׳× cookies
     try:
-        r = requests.get(url, params=params, timeout=20)
-        r.raise_for_status()
-        features = r.json().get("features", [])
-        log(f"  ✅ מבא\"ת: {len(features)} תכניות")
-        return [f["attributes"] for f in features]
-    except Exception as e:
-        log(f"  ⚠️  שגיאת מבא\"ת: {e}")
-        return []
-
-def fetch_mavat_decisions(days_back=30) -> list:
-    log("🔍 שולף החלטות ועדה...")
-    cutoff = int((datetime.now() - timedelta(days=days_back)).timestamp() * 1000)
-    url = f"{IPLAN_BASE}/4/query"
-    params = {
-        "where": f"CITY_CODE='{CONFIG['city_code']}' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
-        "outFields": "*",
-        "returnGeometry": "false",
-        "f": "json",
-        "resultRecordCount": 100,
-    }
-    try:
-        r = requests.get(url, params=params, timeout=20)
-        r.raise_for_status()
-        features = r.json().get("features", [])
-        log(f"  ✅ החלטות ועדה: {len(features)} רשומות")
-        return [f["attributes"] for f in features]
-    except Exception as e:
-        log(f"  ⚠️  שגיאת ועדה: {e}")
-        return []
-
-# ─────────────────────────────────────────────
-# 📡  מקור 2: Complot חיפה
-# ─────────────────────────────────────────────
-def fetch_complot_permits(street: str = "") -> list:
-    log(f"🔍 שולף מ-Complot {'רחוב ' + street if street else ''}...")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-        "Accept-Language": "he-IL,he;q=0.9",
-    }
-    results = []
-    try:
-        url = "https://haifa.complot.co.il/newengine/Pages/taba2.aspx"
-        params = {"q": street} if street else {}
-        r = requests.get(url, params=params, headers=headers, timeout=15)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        for row in soup.select("tr"):
-            cols = row.find_all("td")
-            if len(cols) >= 3:
-                results.append({
-                    "permit_number": cols[0].get_text(strip=True),
-                    "address":       cols[1].get_text(strip=True),
-                    "status":        cols[2].get_text(strip=True),
-                    "date":          cols[3].get_text(strip=True) if len(cols) > 3 else "",
-                })
-        log(f"  ✅ Complot: {len(results)} רשומות")
-    except Exception as e:
-        log(f"  ⚠️  Complot: {e}")
-    return results
-
-# ─────────────────────────────────────────────
-# 🧠  ניתוח שינויים
-# ─────────────────────────────────────────────
-def detect_changes(plans: list, cache: dict) -> dict:
-    prev_ids    = set(cache.get("plan_ids", []))
-    current_ids = {str(p.get("PLAN_NUMBER", "")) for p in plans}
-    new_ids     = current_ids - prev_ids
-    return {
-        "new_plans":  [p for p in plans if str(p.get("PLAN_NUMBER","")) in new_ids],
-        "approved":   [p for p in plans if "בתוקף" in str(p.get("STATION_DESC","")) or "אושרה" in str(p.get("STATION_DESC",""))],
-        "deposited":  [p for p in plans if "הפקדה" in str(p.get("STATION_DESC",""))],
-        "total":      len(plans),
-        "new_count":  len(new_ids),
-    }
-
-def filter_by_streets(plans, streets):
-    if not streets:
-        return plans
-    return [p for p in plans if any(s in str(p.get("PLAN_NAME","")) for s in streets)]
-
-# ─────────────────────────────────────────────
-# 📄  דוח HTML
-# ─────────────────────────────────────────────
-def ts_to_date(ts) -> str:
-    try:
-        if ts:
-            return datetime.fromtimestamp(int(ts) / 1000).strftime("%d/%m/%Y")
+        session.get(COMPLOT_BASE + "/yeshivot/", timeout=10)
+        time.sleep(1)
     except:
         pass
-    return "—"
 
-def plan_rows(items):
-    if not items:
-        return "<tr><td colspan='4' class='empty'>אין רשומות</td></tr>"
-    rows = ""
-    for p in items[:30]:
-        num  = p.get("PLAN_NUMBER", "—")
-        name = p.get("PLAN_NAME", "—")
-        stat = p.get("STATION_DESC", "—")
-        date = ts_to_date(p.get("LAST_UPDATE"))
-        cls  = "approved" if "בתוקף" in stat or "אושרה" in stat else \
-               "deposited" if "הפקדה" in stat else "other"
-        link = f"https://mavat.iplan.gov.il/SV4/1/{num}"
-        rows += f"<tr><td><a href='{link}' target='_blank' class='plan-link'>{num}</a></td><td>{name}</td><td><span class='badge {cls}'>{stat}</span></td><td>{date}</td></tr>"
-    return rows
+    # ׳©׳׳•׳£ ׳¨׳©׳™׳׳× ׳™׳©׳™׳‘׳•׳× ׳׳”-HTML (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳• ׳‘׳“׳₪׳“׳₪׳)
+    url = f"{COMPLOT_BASE}/yeshivot/#search/GetMeetingByDate&siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true&arguments=siteid,v,fd,td,l"
+    try:
+        r = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=15)
+        soup = BeautifulSoup(r.text, "html.parser")
 
-def decision_rows(items):
-    if not items:
-        return "<tr><td colspan='3' class='empty'>אין החלטות</td></tr>"
-    rows = ""
-    for d in items[:20]:
-        name = d.get("PLAN_NAME") or d.get("OBJECT_NAME", "—")
-        comm = d.get("COMMITTEE_NAME", "—")
-        date = ts_to_date(d.get("LAST_UPDATE"))
-        rows += f"<tr><td>{name}</td><td>{comm}</td><td>{date}</td></tr>"
-    return rows
+        # ׳—׳₪׳© ׳׳× ׳”׳ ׳×׳•׳ ׳™׳ ׳׳”-script ׳׳• ׳׳”-API ׳”׳₪׳ ׳™׳׳™
+        # ׳ ׳¡׳” ׳׳× ׳”-API ׳”׳™׳“׳•׳¢
+        api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingByDate?siteid={SITE_ID}&v=0&fd={fd}&td={td}&l=true"
+        r2 = session.get(api_url, timeout=15)
+        if r2.status_code == 200:
+            try:
+                data = r2.json()
+                items = data if isinstance(data, list) else data.get("d", data.get("meetings", []))
+                if items:
+                    log(f"  API: {len(items)} ׳™׳©׳™׳‘׳•׳×")
+                    return parse_api_meetings(items)
+            except:
+                pass
+    except Exception as e:
+        log(f"  ׳©׳’׳™׳׳”: {e}")
 
-def complot_rows(items):
-    if not items:
-        return "<tr><td colspan='4' class='empty'>לא נמצאו נתונים (ייתכן חסימה זמנית)</td></tr>"
-    rows = ""
-    for c in items[:20]:
-        rows += f"<tr><td>{c.get('permit_number','—')}</td><td>{c.get('address','—')}</td><td>{c.get('status','—')}</td><td>{c.get('date','—')}</td></tr>"
-    return rows
+    # fallback: ׳ ׳¡׳” URL ׳™׳©׳™׳¨ ׳¢׳ ׳”׳₪׳¨׳׳˜׳¨׳™׳
+    try:
+        r3 = session.get(
+            f"{COMPLOT_BASE}/newengine/Pages/meetings2.aspx",
+            params={"siteid": SITE_ID, "fd": fd, "td": td},
+            timeout=15
+        )
+        if r3.status_code == 200:
+            return parse_html_meetings(r3.text, fd, td)
+    except Exception as e:
+        log(f"  fallback ׳©׳’׳™׳׳”: {e}")
 
-def build_html_report(plans, decisions, complot, changes) -> str:
-    today    = datetime.now().strftime("%d/%m/%Y %H:%M")
-    approved = changes["approved"]
-    deposited= changes["deposited"]
-    new_plans= changes["new_plans"]
+    log("  ׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×")
+    return []
 
-    watch_html = ""
-    if CONFIG["watch_streets"]:
-        watched = filter_by_streets(plans, CONFIG["watch_streets"])
-        watch_html = f"""
-        <section class="section">
-          <h2>📍 רחובות במעקב – {', '.join(CONFIG['watch_streets'])}</h2>
-          <table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>עדכון</th></tr></thead>
-          <tbody>{plan_rows(watched)}</tbody></table>
-        </section>"""
+def parse_api_meetings(items):
+    meetings = []
+    for item in items:
+        meetings.append({
+            "meetingId":   str(item.get("MeetingId") or item.get("meetingId") or item.get("id","")),
+            "committeeId": str(item.get("CommitteeId") or item.get("committeeId","")),
+            "committee":   item.get("CommitteeName") or item.get("committeeName",""),
+            "date":        item.get("MeetingDate") or item.get("date",""),
+        })
+    return meetings
 
-    new_section = ""
-    if new_plans:
-        new_section = f"""
-        <section class="section highlight">
-          <h2>🆕 תכניות חדשות מאז אתמול</h2>
-          <table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>עדכון</th></tr></thead>
-          <tbody>{plan_rows(new_plans)}</tbody></table>
+def parse_html_meetings(html, fd, td):
+    meetings = []
+    soup = BeautifulSoup(html, "html.parser")
+    for row in soup.select("tr"):
+        cells = row.find_all("td")
+        link  = row.find("a", href=re.compile(r"getMeeting"))
+        if not link or len(cells) < 3: continue
+        match = re.search(r"getMeeting\((\d+),(\d+)\)", link["href"])
+        if not match: continue
+        meetings.append({
+            "meetingId":   match.group(2),
+            "committeeId": match.group(1),
+            "committee":   cells[1].get_text(strip=True),
+            "date":        cells[2].get_text(strip=True),
+        })
+    return meetings
+
+# ג”€ג”€ ׳©׳׳™׳₪׳× PDFs ׳©׳ ׳™׳©׳™׳‘׳” ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
+    """׳©׳•׳׳£ ׳§׳™׳©׳•׳¨׳™ PDF ׳׳™׳©׳™׳‘׳” ׳¡׳₪׳¦׳™׳₪׳™׳×"""
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    try:
+        # ׳›׳×׳•׳‘׳× ׳“׳£ ׳”׳™׳©׳™׳‘׳” (׳›׳₪׳™ ׳©׳’׳™׳׳™׳ ׳•)
+        url = f"{COMPLOT_BASE}/yeshivot/#meeting/{committee_id}/{meeting_id}"
+        # ׳”-API ׳”׳׳׳™׳×׳™ ׳©׳׳—׳–׳™׳¨ ׳׳× ׳׳¡׳׳›׳™ ׳”׳™׳©׳™׳‘׳”
+        api_url = f"{COMPLOT_BASE}/newengine/api/meetings/GetMeetingDocuments?committeeId={committee_id}&meetingId={meeting_id}&siteid={SITE_ID}"
+
+        r = session.get(api_url, timeout=15)
+        if r.status_code == 200:
+            try:
+                docs = r.json()
+                if isinstance(docs, list):
+                    return [{"text": d.get("Title","׳׳¡׳׳"), "href": d.get("Url",""), "committee": committee, "date": date, "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in d.get("Title","")} for d in docs if d.get("Url")]
+            except: pass
+
+        # fallback ג€“ HTML ׳™׳©׳™׳¨
+        r2 = session.get(f"{COMPLOT_BASE}/yeshivot/", timeout=10)
+        time.sleep(0.5)
+        # ׳ ׳‘׳ ׳” URL ׳›׳׳• ׳©׳”-JS ׳¢׳•׳©׳”
+        page_url = f"{COMPLOT_BASE}/yeshivot/?committee={committee_id}&meeting={meeting_id}"
+        r3 = session.get(page_url, timeout=15)
+        soup = BeautifulSoup(r3.text, "html.parser")
+        pdfs = []
+        for a in soup.find_all("a", href=re.compile(r"\.pdf", re.I)):
+            href = a["href"]
+            if not href.startswith("http"):
+                href = COMPLOT_BASE + href
+            pdfs.append({
+                "text": a.get_text(strip=True) or "׳׳¡׳׳",
+                "href": href,
+                "committee": committee,
+                "date": date,
+                "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in a.get_text()
+            })
+        return pdfs
+    except Exception as e:
+        log(f"  PDF ׳©׳’׳™׳׳” ({committee_id}/{meeting_id}): {e}")
+        return []
+
+# ג”€ג”€ ׳¡׳™׳›׳•׳ PDF ׳¢׳ Claude ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def summarize_pdf(pdf_url, committee, date):
+    """׳׳•׳¨׳™׳“ PDF ׳•׳׳¡׳›׳ ׳¢׳ Claude API"""
+    try:
+        log(f"  ׳׳¡׳›׳ PDF: {pdf_url[-50:]}")
+        r = requests.get(pdf_url, headers=HEADERS, timeout=30)
+        if r.status_code != 200:
+            log(f"  PDF ׳׳ ׳ ׳’׳™׳© (status {r.status_code})")
+            return ""
+
+        content_type = r.headers.get("Content-Type", "")
+        if "pdf" not in content_type.lower() and not pdf_url.lower().endswith(".pdf"):
+            log(f"  ׳׳ PDF: {content_type}")
+            return ""
+
+        pdf_b64 = base64.b64encode(r.content).decode()
+
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}
+                        },
+                        {
+                            "type": "text",
+                            "text": f"׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳/׳׳¡׳׳ ׳–׳” ׳©׳ {committee} ׳׳×׳׳¨׳™׳ {date}. ׳›׳×׳•׳‘ ׳¢׳“ 6 ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳•׳× ׳•׳׳¢׳©׳™׳•׳×. ׳׳ ׳–׳” ׳¡׳“׳¨ ׳™׳•׳ ׳•׳׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳, ׳¦׳™׳™׳ ׳׳× ׳”׳ ׳•׳©׳׳™׳ ׳”׳¢׳™׳§׳¨׳™׳™׳ ׳©׳¢׳ ׳”׳₪׳¨׳§."
+                        }
+                    ]
+                }]
+            },
+            timeout=60
+        )
+
+        if resp.status_code == 200:
+            content = resp.json().get("content", [])
+            summary = next((c["text"] for c in content if c.get("type") == "text"), "")
+            log(f"  ׳¡׳•׳›׳ ׳‘׳”׳¦׳׳—׳” ({len(summary)} ׳×׳•׳•׳™׳)")
+            return summary
+        else:
+            log(f"  Claude API ׳©׳’׳™׳׳”: {resp.status_code}")
+            return ""
+
+    except Exception as e:
+        log(f"  ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳: {e}")
+        return ""
+
+# ג”€ג”€ ׳‘׳ ׳™׳™׳× ׳“׳•׳— HTML ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def build_html(meetings_with_docs, today_str):
+    total_meetings = len(meetings_with_docs)
+    total_pdfs     = sum(len(m["docs"]) for m in meetings_with_docs)
+    total_protocols= sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
+
+    sections = ""
+    for m in meetings_with_docs:
+        docs_html = ""
+        for d in m["docs"]:
+            summary_html = ""
+            if d.get("summary"):
+                lines = d["summary"].replace("ג€¢","").strip().split("\n")
+                bullets = "".join(f"<li>{l.strip().lstrip('- ג€¢*').strip()}</li>" for l in lines if l.strip())
+                summary_html = f"<ul class='summary'>{bullets}</ul>"
+            badge = "<span class='badge proto'>׳₪׳¨׳•׳˜׳•׳§׳•׳</span>" if d.get("is_protocol") else "<span class='badge agenda'>׳¡׳“׳¨ ׳™׳•׳</span>"
+            docs_html += f"""
+            <div class='doc'>
+              <div class='doc-header'>
+                {badge}
+                <a href='{d["href"]}' target='_blank' class='doc-link'>{d["text"]}</a>
+              </div>
+              {summary_html}
+            </div>"""
+
+        if not docs_html:
+            docs_html = "<p class='no-docs'>׳׳™׳ ׳׳¡׳׳›׳™׳ ׳–׳׳™׳ ׳™׳</p>"
+
+        sections += f"""
+        <section class='meeting-card'>
+          <div class='meeting-header'>
+            <span class='committee'>{m["committee"]}</span>
+            <span class='date'>{m["date"]}</span>
+          </div>
+          {docs_html}
         </section>"""
 
     return f"""<!DOCTYPE html>
@@ -236,150 +280,123 @@ def build_html_report(plans, decisions, complot, changes) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>דוח יומי – ועדה מקומית חיפה {today}</title>
+<title>׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” ג€“ {today_str}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
-  :root {{
-    --bg:#0e1117; --surface:#161b27; --border:#252d3d;
-    --accent:#3b82f6; --green:#22c55e; --yellow:#eab308; --red:#ef4444;
-    --text:#e2e8f0; --muted:#64748b;
-  }}
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);padding:24px 16px}}
-  .header{{text-align:center;margin-bottom:32px}}
-  .header h1{{font-size:1.9rem;font-weight:800;color:#fff}}
-  .header p{{color:var(--muted);font-size:.9rem;margin-top:6px}}
-  .stats{{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:32px}}
-  .stat-card{{background:var(--surface);border:1px solid var(--border);border-radius:12px;
-    padding:18px 24px;text-align:center;flex:1;min-width:120px}}
-  .stat-card .num{{font-size:2rem;font-weight:800}}
-  .stat-card .lbl{{font-size:.76rem;color:var(--muted);margin-top:4px}}
-  .blue{{color:var(--accent)}} .green{{color:var(--green)}} .yellow{{color:var(--yellow)}}
-  .section{{background:var(--surface);border:1px solid var(--border);border-radius:12px;
-    padding:22px;margin-bottom:20px}}
-  .section.highlight{{border-color:var(--accent)}}
-  .section h2{{font-size:1rem;font-weight:700;margin-bottom:14px;
-    padding-bottom:10px;border-bottom:1px solid var(--border)}}
-  table{{width:100%;border-collapse:collapse;font-size:.85rem}}
-  th{{color:var(--muted);font-weight:600;text-align:right;padding:7px 10px;
-    border-bottom:1px solid var(--border)}}
-  td{{padding:8px 10px;border-bottom:1px solid #1a2030;vertical-align:middle}}
-  tr:last-child td{{border-bottom:none}}
-  .badge{{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.76rem;font-weight:600}}
-  .badge.approved{{background:rgba(34,197,94,.15);color:var(--green)}}
-  .badge.deposited{{background:rgba(234,179,8,.15);color:var(--yellow)}}
-  .badge.other{{background:rgba(100,116,139,.2);color:var(--muted)}}
-  .plan-link{{color:var(--accent);text-decoration:none}}
-  .empty{{color:var(--muted);font-style:italic;padding:18px;text-align:center}}
-  .footer{{text-align:center;color:var(--muted);font-size:.76rem;margin-top:28px}}
-  .footer a{{color:var(--accent)}}
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
+:root{{
+  --bg:#0e1117; --sf:#161b27; --br:#252d3d;
+  --ac:#3b82f6; --gn:#22c55e; --yw:#eab308;
+  --tx:#e2e8f0; --mt:#64748b;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);padding:24px 16px;max-width:860px;margin:0 auto}}
+.header{{text-align:center;margin-bottom:32px}}
+.header h1{{font-size:1.9rem;font-weight:800;color:#fff}}
+.header p{{color:var(--mt);font-size:.88rem;margin-top:5px}}
+.stats{{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:32px}}
+.stat{{background:var(--sf);border:1px solid var(--br);border-radius:12px;
+  padding:16px 22px;text-align:center;flex:1;min-width:110px}}
+.stat .n{{font-size:1.9rem;font-weight:800;color:var(--ac)}}
+.stat .l{{font-size:.72rem;color:var(--mt);margin-top:3px}}
+.meeting-card{{background:var(--sf);border:1px solid var(--br);border-radius:14px;
+  padding:20px;margin-bottom:18px}}
+.meeting-header{{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--br)}}
+.committee{{font-weight:700;font-size:1rem;color:#fff}}
+.date{{font-size:.82rem;color:var(--mt);background:#1e2535;
+  padding:3px 10px;border-radius:6px}}
+.doc{{background:#0e1522;border:1px solid #1e2d45;border-radius:10px;
+  padding:14px;margin-bottom:10px}}
+.doc:last-child{{margin-bottom:0}}
+.doc-header{{display:flex;align-items:center;gap:10px;margin-bottom:8px}}
+.badge{{font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px}}
+.badge.proto{{background:rgba(34,197,94,.15);color:var(--gn)}}
+.badge.agenda{{background:rgba(59,130,246,.15);color:var(--ac)}}
+.doc-link{{color:var(--ac);text-decoration:none;font-size:.88rem}}
+.doc-link:hover{{text-decoration:underline}}
+.summary{{padding-right:16px;margin-top:6px}}
+.summary li{{font-size:.83rem;color:#94a3b8;margin-bottom:4px;line-height:1.5}}
+.no-docs{{color:var(--mt);font-size:.82rem;font-style:italic}}
+.footer{{text-align:center;color:var(--mt);font-size:.74rem;margin-top:28px}}
+.footer a{{color:var(--ac)}}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>🏗️ דוח ועדה מקומית – חיפה</h1>
-  <p>עודכן: {today} | אוטומטי דרך GitHub Actions</p>
+  <h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1>
+  <p>׳¢׳•׳“׳›׳: {today_str} | {CONFIG['days_back']} ׳™׳׳™׳ ׳׳—׳¨׳•׳ ׳™׳</p>
 </div>
-
 <div class="stats">
-  <div class="stat-card"><div class="num blue">{changes['total']}</div><div class="lbl">תכניות פעילות</div></div>
-  <div class="stat-card"><div class="num green">{len(approved)}</div><div class="lbl">מאושרות</div></div>
-  <div class="stat-card"><div class="num yellow">{len(deposited)}</div><div class="lbl">בהפקדה</div></div>
-  <div class="stat-card"><div class="num blue">{changes['new_count']}</div><div class="lbl">חדשות היום</div></div>
-  <div class="stat-card"><div class="num blue">{len(decisions)}</div><div class="lbl">דיוני ועדה</div></div>
+  <div class="stat"><div class="n">{total_meetings}</div><div class="l">׳™׳©׳™׳‘׳•׳×</div></div>
+  <div class="stat"><div class="n">{total_pdfs}</div><div class="l">׳׳¡׳׳›׳™׳</div></div>
+  <div class="stat"><div class="n">{total_protocols}</div><div class="l">׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳</div></div>
 </div>
-
-{new_section}
-{watch_html}
-
-<section class="section">
-  <h2>✅ תכניות שאושרו (30 יום אחרונים)</h2>
-  <table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>תאריך</th></tr></thead>
-  <tbody>{plan_rows(approved)}</tbody></table>
-</section>
-
-<section class="section">
-  <h2>📋 בהפקדה – ניתן להגיש התנגדויות</h2>
-  <table><thead><tr><th>מספר</th><th>שם תכנית</th><th>סטטוס</th><th>תאריך</th></tr></thead>
-  <tbody>{plan_rows(deposited)}</tbody></table>
-</section>
-
-<section class="section">
-  <h2>🗓️ דיוני ועדה (30 יום אחרונים)</h2>
-  <table><thead><tr><th>נושא/תכנית</th><th>ועדה</th><th>תאריך</th></tr></thead>
-  <tbody>{decision_rows(decisions)}</tbody></table>
-</section>
-
-<section class="section">
-  <h2>📄 היתרי בנייה – Complot חיפה</h2>
-  <table><thead><tr><th>מספר היתר</th><th>כתובת</th><th>סטטוס</th><th>תאריך</th></tr></thead>
-  <tbody>{complot_rows(complot)}</tbody></table>
-</section>
-
+{sections if sections else '<p style="text-align:center;color:var(--mt)">׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× ׳‘׳×׳§׳•׳₪׳” ׳–׳•</p>'}
 <div class="footer">
-  <p>
-    <a href="https://mavat.iplan.gov.il">מבא"ת</a> ·
-    <a href="https://haifa.complot.co.il">Complot חיפה</a> ·
-    <a href="https://www.haifa.muni.il">עיריית חיפה</a>
-  </p>
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://mavat.iplan.gov.il">׳׳‘׳"׳×</a></p>
+  <p style="margin-top:5px">׳”׳“׳•׳— ׳”׳‘׳: ׳׳—׳¨ ׳‘-08:00 ׳׳•׳˜׳•׳׳˜׳™׳×</p>
 </div>
 </body></html>"""
 
-# ─────────────────────────────────────────────
-# 📧  שליחת מייל
-# ─────────────────────────────────────────────
-def send_email(subject: str, html_body: str):
+# ג”€ג”€ ׳©׳׳™׳—׳× ׳׳™׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+def send_email(subject, html):
     cfg = CONFIG["email"]
     if not cfg["enabled"] or not cfg["sender"]:
-        log("⚠️  מייל לא מוגדר – מדלג")
+        log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨ ג€“ ׳׳“׳׳’")
         return
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"]    = cfg["sender"]
         msg["To"]      = cfg["recipient"]
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(MIMEText(html, "html", "utf-8"))
         with smtplib.SMTP(cfg["smtp_server"], cfg["smtp_port"]) as s:
             s.starttls()
             s.login(cfg["sender"], cfg["password"])
             s.sendmail(cfg["sender"], cfg["recipient"], msg.as_string())
-        log("📧 מייל נשלח בהצלחה!")
+        log("׳׳™׳™׳ ׳ ׳©׳׳—!")
     except Exception as e:
-        log(f"⚠️  שגיאת מייל: {e}")
+        log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
 
-# ─────────────────────────────────────────────
-# 🚀  ריצה ראשית
-# ─────────────────────────────────────────────
+# ג”€ג”€ ׳¨׳׳©׳™ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 def main():
     CONFIG["data_dir"].mkdir(exist_ok=True)
+    today_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     log("=" * 50)
-    log(f"🏗️  דוח יומי – ועדה מקומית חיפה")
-    log(f"📅  {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    log(f"׳“׳•׳— ׳™׳•׳׳™ ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳” v3")
+    log(f"{today_str}")
     log("=" * 50)
 
-    cache     = load_cache()
-    plans     = fetch_mavat_plans(days_back=30)
-    decisions = fetch_mavat_decisions(days_back=30)
+    # 1. ׳©׳׳•׳£ ׳™׳©׳™׳‘׳•׳×
+    meetings = fetch_meetings(CONFIG["days_back"])
+    log(f"׳ ׳׳¦׳׳• {len(meetings)} ׳™׳©׳™׳‘׳•׳×")
 
-    complot_results = []
-    for street in (CONFIG["watch_streets"] or [""]):
-        complot_results.extend(fetch_complot_permits(street))
-        time.sleep(1)
+    # 2. ׳©׳׳•׳£ PDFs ׳׳›׳ ׳™׳©׳™׳‘׳” ׳•׳¡׳›׳
+    meetings_with_docs = []
+    for m in meetings:
+        log(f"׳™׳©׳™׳‘׳” {m['meetingId']} ג€“ {m['committee']} ({m['date']})")
+        docs = fetch_meeting_pdfs(m["committeeId"], m["meetingId"], m["committee"], m["date"])
+        log(f"  {len(docs)} ׳׳¡׳׳›׳™׳")
 
-    changes = detect_changes(plans, cache)
-    log(f"📊 חדשות: {changes['new_count']} | מאושרות: {len(changes['approved'])} | בהפקדה: {len(changes['deposited'])}")
+        # ׳¡׳›׳ ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳
+        for d in docs:
+            if d.get("is_protocol") and d.get("href"):
+                d["summary"] = summarize_pdf(d["href"], m["committee"], m["date"])
+                time.sleep(1)
 
-    html = build_html_report(plans, decisions, complot_results, changes)
+        meetings_with_docs.append({**m, "docs": docs})
+        time.sleep(0.5)
+
+    # 3. ׳‘׳ ׳” ׳“׳•׳—
+    html = build_html(meetings_with_docs, today_str)
     CONFIG["report_html"].write_text(html, encoding="utf-8")
-    log(f"✅ דוח נשמר: {CONFIG['report_html']}")
+    log(f"׳“׳•׳— ׳ ׳©׳׳¨: {CONFIG['report_html']}")
 
-    cache["plan_ids"]   = [str(p.get("PLAN_NUMBER","")) for p in plans]
-    cache["last_run"]   = datetime.now().isoformat()
-    save_cache(cache)
-
-    subj = f"🏗️ דוח ועדה חיפה {datetime.now().strftime('%d/%m/%Y')} – {changes['new_count']} חדשות, {len(changes['approved'])} מאושרות"
+    # 4. ׳©׳׳— ׳׳™׳™׳
+    total_p = sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
+    subj = f"נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {datetime.now().strftime('%d/%m/%Y')} ג€“ {len(meetings)} ׳™׳©׳™׳‘׳•׳× | {total_p} ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳"
     send_email(subj, html)
-    log("🎉 סיום!")
+    log("׳¡׳™׳•׳!")
 
 if __name__ == "__main__":
     main()
