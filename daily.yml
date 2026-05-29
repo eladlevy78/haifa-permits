@@ -31,7 +31,7 @@ def make_session():
 CONFIG = {
     "city_code": "6700",
     "watch_neighborhoods": ["׳׳—׳•׳–׳”", "׳”׳›׳¨׳׳", "׳¨׳׳•׳× ׳›׳¨׳׳", "׳ ׳•׳•׳” ׳©׳׳ ׳", "׳”׳“׳¨"],
-    "watch_streets": ["׳•׳™׳˜׳§׳™׳"],
+    "watch_streets": [],  # ׳¨׳™׳§ = ׳›׳ ׳—׳™׳₪׳”
     "data_dir":    Path("./haifa_data"),
     "cache_file":  Path("./haifa_data/cache.json"),
     "report_html": Path("./haifa_data/daily_report.html"),
@@ -77,19 +77,18 @@ def ts_to_date(ts):
     except: pass
     return "/"
 
-IPLAN = "https://ags.iplan.gov.il/arcgisiplan/rest/services/PlanningPublic/Xplan/MapServer"
+IPLAN = "http://ags.iplan.gov.il/arcgisiplan/rest/services/PlanningPublic/Xplan/MapServer"
 
 def fetch_mavat_plans(days_back=30):
     log("׳׳‘׳׳× ג€“ ׳×׳›׳ ׳™׳•׳×...")
     cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
     try:
-        sess = make_session()
-        r = sess.get(f"{IPLAN}/1/query", params={
+        r = requests.get(f"{IPLAN}/1/query", params={
             "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
             "outFields": "PLAN_NUMBER,PLAN_NAME,STATION_DESC,LAST_UPDATE,COMMITTEE_NAME",
             "returnGeometry": "false", "f": "json",
             "resultRecordCount": 200, "orderByFields": "LAST_UPDATE DESC",
-        }, timeout=20, verify=False)
+        }, timeout=20)
         feats = r.json().get("features",[])
         log(f"  {len(feats)} ׳×׳›׳ ׳™׳•׳×")
         return [f["attributes"] for f in feats]
@@ -101,12 +100,11 @@ def fetch_mavat_decisions(days_back=30):
     log("׳׳‘׳׳× ג€“ ׳“׳™׳•׳ ׳™׳...")
     cutoff = int((datetime.now()-timedelta(days=days_back)).timestamp()*1000)
     try:
-        sess = make_session()
-        r = sess.get(f"{IPLAN}/4/query", params={
+        r = requests.get(f"{IPLAN}/4/query", params={
             "where": f"CITY_CODE='6700' AND LAST_UPDATE_TIMESTAMP>={cutoff}",
             "outFields": "*", "returnGeometry": "false", "f": "json",
             "resultRecordCount": 100,
-        }, timeout=20, verify=False)
+        }, timeout=20)
         feats = r.json().get("features",[])
         log(f"  {len(feats)} ׳”׳—׳׳˜׳•׳×")
         return [f["attributes"] for f in feats]
