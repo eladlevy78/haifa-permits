@@ -274,14 +274,14 @@ body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);paddin
 <body>
 <div class="hd"><h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1><p>׳¢׳•׳“׳›׳: {today_str} | {CONFIG['days_back']} ׳™׳׳™׳ ׳׳—׳¨׳•׳ ׳™׳</p></div>
 <div class="st">
-  <div class="sc"><div class="n">{total_m}</div><div class="l">׳™׳©׳™׳‘׳•׳×</div></div>
-  <div class="sc"><div class="n">{total_d}</div><div class="l">׳׳¡׳׳›׳™׳</div></div>
-  <div class="sc"><div class="n">{total_p}</div><div class="l">׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳</div></div>
+  <div class="sc"><div class="n">{total_m}</div><div class="l">Meetings</div></div>
+  <div class="sc"><div class="n">{total_d}</div><div class="l">Documents</div></div>
+  <div class="sc"><div class="n">{total_p}</div><div class="l">Protocols</div></div>
 </div>
 {sections or empty}
 <div class="ft">
   <p><a href="https://haifa.complot.co.il/yeshivot/">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://mavat.iplan.gov.il">׳׳‘׳"׳×</a></p>
-  <p style="margin-top:5px">׳”׳“׳•׳— ׳”׳‘׳: ׳׳—׳¨ ׳‘-08:00</p>
+  <p style="margin-top:5px">Next report: tomorrow at 08:00</p>
 </div>
 </body></html>"""
 
@@ -292,17 +292,11 @@ def send_email(subject, html):
         log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨")
         return
     try:
-        from email.mime.base import MIMEBase
-        from email import encoders as email_encoders
         msg = MIMEMultipart("alternative")
         msg["Subject"] = Header(subject, "utf-8")
         msg["From"]    = cfg["sender"]
         msg["To"]      = cfg["recipient"]
-        html_bytes = html.encode("utf-8")
-        part = MIMEBase("text", "html", charset="utf-8")
-        part.set_payload(html_bytes)
-        email_encoders.encode_base64(part)
-        part.add_header("Content-Transfer-Encoding", "base64")
+        part = MIMEText(html.encode("utf-8").decode("utf-8"), "html", "utf-8")
         msg.attach(part)
         with smtplib.SMTP(cfg["smtp_server"], cfg["smtp_port"]) as s:
             s.starttls()
@@ -340,7 +334,7 @@ def main():
     log(f"׳“׳•׳— ׳ ׳©׳׳¨")
 
     total_p = sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
-    subj = f"׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {datetime.now().strftime('%d/%m/%Y')} ג€“ {len(meetings)} ׳™׳©׳™׳‘׳•׳× | {total_p} ׳₪׳¨׳•׳˜׳•׳§׳•׳׳™׳"
+    subj = f"Haifa Committee Report {datetime.now().strftime('%d/%m/%Y')} - {len(meetings)} meetings | {total_p} protocols"
     send_email(subj, html)
     log("׳¡׳™׳•׳!")
 
