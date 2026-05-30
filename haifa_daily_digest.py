@@ -33,22 +33,19 @@ def log(msg):
         f.write(f"[{ts}] {msg}\n")
 
 def fetch_summaries():
-    """Fetch summaries.json from GitHub repo"""
+    """Fetch summaries.json directly from GitHub raw content"""
     log("Fetching summaries from GitHub...")
     try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/summaries.json"
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        if GITHUB_TOKEN:
-            headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-        r = requests.get(url, headers=headers, timeout=15)
+        # Use raw.githubusercontent.com - works for public repos without auth
+        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/summaries.json"
+        r = requests.get(url, timeout=15)
+        log(f"  Status: {r.status_code}, size: {len(r.content)} bytes")
         if r.status_code == 200:
-            data = r.json()
-            content = base64.b64decode(data["content"]).decode("utf-8")
-            summaries = json.loads(content)
+            summaries = r.json()
             log(f"  Found {len(summaries.get('meetings', []))} meetings")
             return summaries
         else:
-            log(f"  No summaries.json found (status {r.status_code})")
+            log(f"  summaries.json not found (status {r.status_code})")
             return None
     except Exception as e:
         log(f"  Error: {e}")
@@ -75,7 +72,7 @@ def build_html(summaries):
             badge   = "<span class='bp'>Protocol</span>" if d.get("isProtocol") else "<span class='ba'>Agenda</span>"
             summary = ""
             if d.get("summary"):
-                lines   = [l.strip().lstrip("-•* ") for l in d["summary"].split("\n") if l.strip()]
+                lines   = [l.strip().lstrip("-ג€¢* ") for l in d["summary"].split("\n") if l.strip()]
                 bullets = "".join(f"<li>{l}</li>" for l in lines)
                 summary = f"<ul class='sm'>{bullets}</ul>"
             docs_html += f"""
@@ -140,7 +137,7 @@ body{{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);paddin
   <p>Generated: {today_str}</p>
 </div>
 <div class="period">
-  Weekly summary: {period.get("from","")} – {period.get("to","")}
+  Weekly summary: {period.get("from","")} ג€“ {period.get("to","")}
 </div>
 <div class="st">
   <div class="sc"><div class="n">{total_meetings}</div><div class="l">Meetings</div></div>
@@ -149,7 +146,7 @@ body{{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);paddin
 </div>
 {meeting_cards}
 <div class="ft">
-  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot Haifa</a> · <a href="https://mavat.iplan.gov.il">iplan.gov.il</a></p>
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot Haifa</a> ֲ· <a href="https://mavat.iplan.gov.il">iplan.gov.il</a></p>
   <p style="margin-top:5px">Next report: Friday at 08:00</p>
 </div>
 </body></html>"""
