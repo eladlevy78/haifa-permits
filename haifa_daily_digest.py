@@ -99,9 +99,12 @@ def build_html(summaries):
     # Summarize protocols that don't have a summary yet
     for m in meetings:
         for d in m.get("docs", []):
-            is_proto = d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol","protocol","׳₪׳¨׳•׳˜׳•׳§׳•׳"])
+            txt = d.get("text","")
+            has_proto = "׳₪׳¨׳•׳˜׳•׳§׳•׳" in txt or "Protocol" in txt
+            is_proto = d.get("isProtocol") or has_proto
+            log(f"  Doc: {txt[:40]} proto={is_proto} empty={not d.get('summary')}")
             if is_proto and not d.get("summary") and d.get("href","#") != "#":
-                log(f"  Summarizing: {d.get('text','')[:50]}")
+                log(f"  Summarizing: {txt[:50]}")
                 d["summary"] = summarize_pdf(d["href"], m.get("committee",""), m.get("date",""))
 
     total_meetings  = len(meetings)
