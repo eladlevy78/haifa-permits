@@ -20,8 +20,12 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Set locale
+        run: |
+          sudo locale-gen he_IL.UTF-8
+          sudo update-locale LANG=he_IL.UTF-8
       - name: Run digest
-        env:
+          env:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
