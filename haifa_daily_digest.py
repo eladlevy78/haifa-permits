@@ -137,7 +137,7 @@ body{{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);paddin
   <p>Generated: {today_str}</p>
 </div>
 <div class="period">
-  Weekly summary: {period.get("from","")} ג€“ {period.get("to","")}
+  Weekly summary: {period.get("from","")} to {period.get("to","")}
 </div>
 <div class="st">
   <div class="sc"><div class="n">{total_meetings}</div><div class="l">Meetings</div></div>
