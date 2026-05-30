@@ -75,7 +75,7 @@ def build_html(summaries):
             badge   = "<span class='bp'>Protocol</span>" if d.get("isProtocol") else "<span class='ba'>Agenda</span>"
             summary = ""
             if d.get("summary"):
-                lines   = [l.strip().lstrip("-ג€¢* ") for l in d["summary"].split("\n") if l.strip()]
+                lines   = [l.strip().lstrip("-•* ") for l in d["summary"].split("\n") if l.strip()]
                 bullets = "".join(f"<li>{l}</li>" for l in lines)
                 summary = f"<ul class='sm'>{bullets}</ul>"
             docs_html += f"""
@@ -136,11 +136,11 @@ body{{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);paddin
 </head>
 <body>
 <div class="hd">
-  <h1>נ—ן¸ Haifa Local Committee Report</h1>
+  <h1>Haifa Local Committee Report</h1>
   <p>Generated: {today_str}</p>
 </div>
 <div class="period">
-  Weekly summary: {period.get("from","")} ג€“ {period.get("to","")}
+  Weekly summary: {period.get("from","")} – {period.get("to","")}
 </div>
 <div class="st">
   <div class="sc"><div class="n">{total_meetings}</div><div class="l">Meetings</div></div>
@@ -149,7 +149,7 @@ body{{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);paddin
 </div>
 {meeting_cards}
 <div class="ft">
-  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot Haifa</a> ֲ· <a href="https://mavat.iplan.gov.il">iplan.gov.il</a></p>
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot Haifa</a> · <a href="https://mavat.iplan.gov.il">iplan.gov.il</a></p>
   <p style="margin-top:5px">Next report: Friday at 08:00</p>
 </div>
 </body></html>"""
@@ -161,7 +161,7 @@ def build_no_summaries_html(today_str):
 <style>body{{font-family:Inter,sans-serif;background:#0e1117;color:#e2e8f0;padding:40px;text-align:center}}</style>
 </head>
 <body>
-<h1>נ—ן¸ Haifa Local Committee Report</h1>
+<h1>Haifa Local Committee Report</h1>
 <p style="color:#64748b;margin-top:20px">No summaries available yet.</p>
 <p style="color:#64748b;margin-top:10px">Run the Chrome weekly summary script on Friday morning to generate summaries.</p>
 </body></html>"""
