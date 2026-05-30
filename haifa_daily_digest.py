@@ -51,6 +51,41 @@ def fetch_summaries():
         log(f"  Error: {e}")
         return None
 
+def summarize_pdf(pdf_url, committee, date):
+    """Download PDF and summarize with Claude API"""
+    try:
+        log(f"    Downloading PDF...")
+        r = requests.get(pdf_url, timeout=30)
+        if r.status_code != 200:
+            log(f"    PDF download failed: {r.status_code}")
+            return ""
+        pdf_b64 = base64.b64encode(r.content).decode()
+        log(f"    Sending to Claude API...")
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                    {"type": "text", "text": f"Summarize in English the main decisions from this committee meeting protocol ({committee}, {date}). For each decision include the address/location if mentioned, what was decided, and a brief reason. Format as bullet points. Maximum 10 bullets."}
+                ]}]
+            },
+            timeout=60
+        )
+        if resp.status_code == 200:
+            c = resp.json().get("content", [])
+            summary = next((x["text"] for x in c if x.get("type") == "text"), "")
+            log(f"    Summarized: {len(summary)} chars")
+            return summary
+        else:
+            log(f"    Claude API error: {resp.status_code}")
+            return ""
+    except Exception as e:
+        log(f"    Summarization error: {e}")
+        return ""
+
 def build_html(summaries):
     today_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     
@@ -60,7 +95,15 @@ def build_html(summaries):
     period = summaries.get("period", {})
     meetings = summaries.get("meetings", [])
     generated = summaries.get("generated", "")
-    
+
+    # Summarize protocols that don't have a summary yet
+    for m in meetings:
+        for d in m.get("docs", []):
+            is_proto = d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol","protocol","׳₪׳¨׳•׳˜׳•׳§׳•׳"])
+            if is_proto and not d.get("summary") and d.get("href","#") != "#":
+                log(f"  Summarizing: {d.get('text','')[:50]}")
+                d["summary"] = summarize_pdf(d["href"], m.get("committee",""), m.get("date",""))
+
     total_meetings  = len(meetings)
     total_protocols = sum(1 for m in meetings for d in m.get("docs",[]) if d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol","protocol","׳₪׳¨׳•׳˜׳•׳§׳•׳"]))
     total_docs      = sum(len(m.get("docs",[])) for m in meetings)
