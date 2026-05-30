@@ -1,43 +1,26 @@
-{
-  "generated": "2026-05-30T10:49:55.300Z",
-  "period": {
-    "from": "23/5/2026",
-    "to": "30/5/2026"
+[
+  {
+    "id": "63",
+    "title": "ועדת משנה של הועדה המקומית מס' 63",
+    "date": "01/06/2026",
+    "docs": []
   },
-  "meetings": [
-    {
-      "committeeId": "4",
-      "meetingId": "151",
-      "committee": "וועדה לשימור מבנים ואתרים",
-      "date": "24/05/2026",
-      "docs": [
-        {
-          "text": "סדר יום וכתבה ועדת שימור_מס' 17_24.05.2026-PDFUA",
-          "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/6a69298e-8eba-40fc-8495-47a3db5a5895.pdf",
-          "isProtocol": false,
-          "summary": ""
-        }
-      ]
-    },
-    {
-      "committeeId": "7",
-      "meetingId": "675",
-      "committee": "רשות רישוי מקומית",
-      "date": "24/05/2026",
-      "docs": [
-        {
-          "text": "סדר יום רשות רישוי מקומית",
-          "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/951/e829597a-b0e6-4789-9194-19206ecf6089.pdf",
-          "isProtocol": false,
-          "summary": ""
-        },
-        {
-          "text": "פרוטוקול רשות רישוי מקומית",
-          "href": "https://archive.gis-net.co.il/Haifa/Pirsumim/778/c3111d4b-3844-4354-8646-98c3193e884d.pdf",
-          "isProtocol": false,
-          "summary": ""
-        }
-      ]
-    }
-  ]
-}
+  {
+    "id": "151",
+    "title": "וועדה לשימור מבנים ואתרים מס' 151",
+    "date": "24/05/2026",
+    "docs": []
+  },
+  {
+    "id": "675",
+    "title": "רשות רישוי מקומית מס' 675",
+    "date": "24/05/2026",
+    "docs": []
+  },
+  {
+    "id": "62",
+    "title": "ועדת משנה של הועדה המקומית מס' 62",
+    "date": "18/05/2026",
+    "docs": []
+  }
+]
