@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""haifa_daily_digest.py v4 - ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”"""
+"""haifa_daily_digest.py v4 - Haifa Local Committee"""
 
 import requests, json, os, time, smtplib, re, base64
 from datetime import datetime, timedelta
@@ -41,14 +41,14 @@ def log(msg):
     with open(CONFIG["log_file"], "a", encoding="utf-8") as f:
         f.write(f"[{ts}] {msg}\n")
 
-# ג”€ג”€ ׳©׳׳™׳₪׳× ׳™׳©׳™׳‘׳•׳× ׳“׳¨׳ ׳”-API ׳”׳™׳“׳•׳¢ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── Fetch meetings ──────────────────────────
 def fetch_meetings(days_back=30):
-    log("׳©׳•׳׳£ ׳™׳©׳™׳‘׳•׳× ׳-Complot...")
+    log("Fetching meetings from Complot...")
     today = datetime.now()
     fd    = (today - timedelta(days=days_back)).strftime("%d/%m/%Y")
     td    = today.strftime("%d/%m/%Y")
 
-    # ׳”-API ׳”׳₪׳ ׳™׳׳™ ׳©׳’׳™׳׳™׳ ׳•
+    # Known internal API
     apis = [
         f"{COMPLOT_BASE}/newengine/api/Meetings/GetMeetingByDate?siteid=16&v=0&fd={fd}&td={td}&l=true",
         f"{COMPLOT_BASE}/newengine/Services/MeetingsService.svc/json/GetMeetingByDate?siteid=16&v=0&fd={fd}&td={td}&l=true",
@@ -63,21 +63,21 @@ def fetch_meetings(days_back=30):
             r = session.get(url, timeout=15)
             log(f"  {url[-60:]}: status={r.status_code}")
             if r.status_code == 200 and len(r.text) > 10:
-                log(f"  ׳×׳’׳•׳‘׳”: {r.text[:200]}")
+                log(f"  Response: {r.text[:200]}")
                 try:
                     data = r.json()
                     items = data if isinstance(data, list) else \
                             data.get("d", data.get("GetMeetingByDateResult", data.get("meetings", [])))
                     if items:
-                        log(f"  ׳ ׳׳¦׳׳• {len(items)} ׳™׳©׳™׳‘׳•׳×!")
+                        log(f"  Found {len(items)} meetings!")
                         return [parse_meeting(i) for i in items]
                 except Exception as e:
-                    log(f"  JSON ׳©׳’׳™׳׳”: {e}, text: {r.text[:100]}")
+                    log(f"  JSON error: {e}")
         except Exception as e:
-            log(f"  ׳©׳’׳™׳׳”: {e}")
+            log(f"  Error: {e}")
         time.sleep(0.5)
 
-    log("  Complot ׳—׳¡׳•׳ ג€“ ׳׳—׳–׳™׳¨ ׳¨׳©׳™׳׳” ׳™׳“׳ ׳™׳×")
+    log("  Complot blocked - using hardcoded list")
     return get_hardcoded_meetings(days_back)
 
 def parse_meeting(item):
@@ -89,19 +89,19 @@ def parse_meeting(item):
     }
 
 def get_hardcoded_meetings(days_back):
-    """׳™׳©׳™׳‘׳•׳× ׳™׳“׳•׳¢׳•׳× ׳©׳’׳™׳׳™׳ ׳• ׳‘׳“׳₪׳“׳₪׳ ג€“ fallback"""
+    """Hardcoded meetings discovered via browser - fallback"""
     today = datetime.now()
     cutoff = today - timedelta(days=days_back)
     all_meetings = [
-        {"meetingId":"675","committeeId":"7","committee":"׳¨׳©׳•׳× ׳¨׳™׳©׳•׳™ ׳׳§׳•׳׳™׳×","date":"24/05/2026"},
-        {"meetingId":"151","committeeId":"4","committee":"׳•׳¢׳“׳” ׳׳©׳™׳׳•׳¨ ׳׳‘׳ ׳™׳ ׳•׳׳×׳¨׳™׳","date":"24/05/2026"},
-        {"meetingId":"62", "committeeId":"3","committee":"׳•׳¢׳“׳× ׳׳©׳ ׳” ׳©׳ ׳”׳•׳¢׳“׳” ׳”׳׳§׳•׳׳™׳×","date":"18/05/2026"},
-        {"meetingId":"674","committeeId":"7","committee":"׳¨׳©׳•׳× ׳¨׳™׳©׳•׳™ ׳׳§׳•׳׳™׳×","date":"14/05/2026"},
-        {"meetingId":"61", "committeeId":"3","committee":"׳•׳¢׳“׳× ׳׳©׳ ׳” ׳©׳ ׳”׳•׳¢׳“׳” ׳”׳׳§׳•׳׳™׳×","date":"11/05/2026"},
-        {"meetingId":"673","committeeId":"7","committee":"׳¨׳©׳•׳× ׳¨׳™׳©׳•׳™ ׳׳§׳•׳׳™׳×","date":"06/05/2026"},
-        {"meetingId":"60", "committeeId":"3","committee":"׳•׳¢׳“׳× ׳׳©׳ ׳” ׳©׳ ׳”׳•׳¢׳“׳” ׳”׳׳§׳•׳׳™׳×","date":"27/04/2026"},
-        {"meetingId":"672","committeeId":"7","committee":"׳¨׳©׳•׳× ׳¨׳™׳©׳•׳™ ׳׳§׳•׳׳™׳×","date":"26/04/2026"},
-        {"meetingId":"671","committeeId":"7","committee":"׳¨׳©׳•׳× ׳¨׳™׳©׳•׳™ ׳׳§׳•׳׳™׳×","date":"13/04/2026"},
+        {"meetingId":"675","committeeId":"7","committee":"Local Licensing Authority","date":"24/05/2026"},
+        {"meetingId":"151","committeeId":"4","committee":"Historic Preservation Committee","date":"24/05/2026"},
+        {"meetingId":"62", "committeeId":"3","committee":"Local Planning Sub-Committee","date":"18/05/2026"},
+        {"meetingId":"674","committeeId":"7","committee":"Local Licensing Authority","date":"14/05/2026"},
+        {"meetingId":"61", "committeeId":"3","committee":"Local Planning Sub-Committee","date":"11/05/2026"},
+        {"meetingId":"673","committeeId":"7","committee":"Local Licensing Authority","date":"06/05/2026"},
+        {"meetingId":"60", "committeeId":"3","committee":"Local Planning Sub-Committee","date":"27/04/2026"},
+        {"meetingId":"672","committeeId":"7","committee":"Local Licensing Authority","date":"26/04/2026"},
+        {"meetingId":"671","committeeId":"7","committee":"Local Licensing Authority","date":"13/04/2026"},
     ]
     result = []
     for m in all_meetings:
@@ -111,10 +111,10 @@ def get_hardcoded_meetings(days_back):
                 result.append(m)
         except:
             result.append(m)
-    log(f"  fallback: {len(result)} ׳™׳©׳™׳‘׳•׳×")
+    log(f"  fallback: {len(result)} meetings")
     return result
 
-# ג”€ג”€ ׳©׳׳™׳₪׳× PDFs ׳׳›׳ ׳™׳©׳™׳‘׳” ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── Fetch PDFs per meeting ───────────────────
 def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
     log(f"  Fetching docs for meeting {meeting_id}...")
 
@@ -166,7 +166,7 @@ def fetch_meeting_pdfs(committee_id, meeting_id, committee, date):
     return []
 
 def format_doc(d, committee, date):
-    title = d.get("Title") or d.get("DocumentName") or d.get("title","׳׳¡׳׳")
+    title = d.get("Title") or d.get("DocumentName") or d.get("title","Document")
     url   = d.get("Url") or d.get("DocumentUrl") or d.get("url","")
     if url and not url.startswith("http"):
         url = COMPLOT_BASE + url
@@ -175,15 +175,15 @@ def format_doc(d, committee, date):
         "href": url,
         "committee": committee,
         "date": date,
-        "is_protocol": "׳₪׳¨׳•׳˜׳•׳§׳•׳" in title
+        "is_protocol": "Protocol" in title or "פרוטוקול" in title
     }
 
-# ג”€ג”€ ׳¡׳™׳›׳•׳ PDF ׳¢׳ Claude ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── Summarize PDF with Claude ───────────────
 def summarize_pdf(pdf_url, committee, date):
     if not pdf_url or not pdf_url.startswith("http"):
         return ""
     try:
-        log(f"    ׳׳¡׳›׳: {pdf_url[-50:]}")
+        log(f"    Summarizing: {pdf_url[-50:]}")
         r = requests.get(pdf_url, headers=HEADERS, timeout=30)
         if r.status_code != 200: return ""
         pdf_b64 = base64.b64encode(r.content).decode()
@@ -195,7 +195,7 @@ def summarize_pdf(pdf_url, committee, date):
                 "max_tokens": 800,
                 "messages": [{"role":"user","content":[
                     {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":pdf_b64}},
-                    {"type":"text","text":f"׳¡׳›׳ ׳‘׳¢׳‘׳¨׳™׳× ׳׳× ׳”׳”׳—׳׳˜׳•׳× ׳”׳¢׳™׳§׳¨׳™׳•׳× ׳׳₪׳¨׳•׳˜׳•׳§׳•׳ ׳™׳©׳™׳‘׳× {committee} ׳-{date}. ׳›׳×׳•׳‘ ׳¢׳“ 6 ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳•׳×."}
+                    {"type":"text","text":f"Summarize in English the main decisions from the protocol of {committee} from {date}. Write up to 6 short bullet points."}
                 ]}]
             },
             timeout=60
@@ -204,10 +204,10 @@ def summarize_pdf(pdf_url, committee, date):
             c = resp.json().get("content",[])
             return next((x["text"] for x in c if x.get("type")=="text"),"")
     except Exception as e:
-        log(f"    ׳©׳’׳™׳׳× ׳¡׳™׳›׳•׳: {e}")
+        log(f"    Summarization error: {e}")
     return ""
 
-# ג”€ג”€ HTML ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── HTML ────────────────────────────────────
 def build_html(meetings_with_docs, today_str):
     total_m = len(meetings_with_docs)
     total_d = sum(len(m["docs"]) for m in meetings_with_docs)
@@ -217,29 +217,29 @@ def build_html(meetings_with_docs, today_str):
     for m in meetings_with_docs:
         docs_html = ""
         for d in m["docs"]:
-            badge   = "<span class='bp'>׳₪׳¨׳•׳˜׳•׳§׳•׳</span>" if d.get("is_protocol") else "<span class='ba'>׳¡׳“׳¨ ׳™׳•׳</span>"
+            badge   = "<span class='bp'>Protocol</span>" if d.get("is_protocol") else "<span class='ba'>Agenda</span>"
             summary = ""
             if d.get("summary"):
-                lines   = [l.strip().lstrip("-ג€¢* ") for l in d["summary"].split("\n") if l.strip()]
+                lines   = [l.strip().lstrip("-•* ") for l in d["summary"].split("\n") if l.strip()]
                 bullets = "".join(f"<li>{l}</li>" for l in lines)
                 summary = f"<ul class='sm'>{bullets}</ul>"
             href = d.get("href","#")
             docs_html += f"<div class='doc'><div class='dh'>{badge}<a href='{href}' target='_blank' class='dl'>{d['text']}</a></div>{summary}</div>"
         if not docs_html:
-            docs_html = "<p class='nd'>׳׳™׳ ׳׳¡׳׳›׳™׳ ׳–׳׳™׳ ׳™׳</p>"
+            docs_html = "<p class='nd'>No documents available</p>"
 
         sections += f"""<section class='mc'>
   <div class='mh'><span class='cm'>{m['committee']}</span><span class='dt'>{m['date']}</span></div>
   {docs_html}
 </section>"""
 
-    empty = "<p style='text-align:center;color:#64748b;padding:40px'>׳׳ ׳ ׳׳¦׳׳• ׳™׳©׳™׳‘׳•׳× ׳‘׳×׳§׳•׳₪׳” ׳–׳•</p>"
+    empty = "<p style='text-align:center;color:#64748b;padding:40px'>No meetings found in this period</p>"
     return f"""<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>׳“׳•׳— ׳•׳¢׳“׳” ׳—׳™׳₪׳” {today_str}</title>
+<title>Haifa Committee Report {today_str}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
 :root{{--bg:#0e1117;--sf:#161b27;--br:#252d3d;--ac:#3b82f6;--gn:#22c55e;--tx:#e2e8f0;--mt:#64748b}}
@@ -272,7 +272,7 @@ body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);paddin
 </style>
 </head>
 <body>
-<div class="hd"><h1>נ—ן¸ ׳“׳•׳— ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ג€“ ׳—׳™׳₪׳”</h1><p>׳¢׳•׳“׳›׳: {today_str} | {CONFIG['days_back']} ׳™׳׳™׳ ׳׳—׳¨׳•׳ ׳™׳</p></div>
+<div class="hd"><h1>🏗️ Haifa Local Committee Report</h1><p>Updated: {today_str} | Last {CONFIG['days_back']} days</p></div>
 <div class="st">
   <div class="sc"><div class="n">{total_m}</div><div class="l">Meetings</div></div>
   <div class="sc"><div class="n">{total_d}</div><div class="l">Documents</div></div>
@@ -280,16 +280,16 @@ body{{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--tx);paddin
 </div>
 {sections or empty}
 <div class="ft">
-  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot ׳—׳™׳₪׳”</a> ֲ· <a href="https://mavat.iplan.gov.il">׳׳‘׳"׳×</a></p>
-  <p style="margin-top:5px">Next report: tomorrow at 08:00</p>
+  <p><a href="https://haifa.complot.co.il/yeshivot/">Complot Haifa</a> · <a href="https://mavat.iplan.gov.il">iplan.gov.il</a></p>
+  <p style='margin-top:5px'>Next report: tomorrow at 08:00</p>
 </div>
 </body></html>"""
 
-# ג”€ג”€ ׳׳™׳™׳ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── Email ───────────────────────────────────
 def send_email(subject, html):
     cfg = CONFIG["email"]
     if not cfg["enabled"] or not cfg["sender"]:
-        log("׳׳™׳™׳ ׳׳ ׳׳•׳’׳“׳¨")
+        log("Email not configured")
         return
     try:
         msg = MIMEMultipart("alternative")
@@ -304,23 +304,23 @@ def send_email(subject, html):
             s.send_message(msg)
         log("Email sent!")
     except Exception as e:
-        log(f"׳©׳’׳™׳׳× ׳׳™׳™׳: {e}")
+        log(f"Email error: {e}")
 
-# ג”€ג”€ ׳¨׳׳©׳™ ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+# ── Main ────────────────────────────────────
 def main():
     CONFIG["data_dir"].mkdir(exist_ok=True)
     today_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     log("=" * 50)
-    log(f"׳“׳•׳— ׳™׳•׳׳™ v4 ג€“ ׳•׳¢׳“׳” ׳׳§׳•׳׳™׳× ׳—׳™׳₪׳”")
+    log("Daily Digest v4 - Haifa Local Committee")
     log(today_str)
     log("=" * 50)
 
     meetings = fetch_meetings(CONFIG["days_back"])
-    log(f"׳¡׳”\"׳› {len(meetings)} ׳™׳©׳™׳‘׳•׳×")
+    log(f"Total {len(meetings)} meetings")
 
     meetings_with_docs = []
     for m in meetings:
-        log(f"׳™׳©׳™׳‘׳” {m['meetingId']} ג€“ {m['committee']} ({m['date']})")
+        log(f"Meeting {m['meetingId']} - {m['committee']} ({m['date']})")
         docs = fetch_meeting_pdfs(m["committeeId"], m["meetingId"], m["committee"], m["date"])
         for d in docs:
             if d.get("is_protocol") and d.get("href","#") != "#":
@@ -331,12 +331,12 @@ def main():
 
     html = build_html(meetings_with_docs, today_str)
     CONFIG["report_html"].write_text(html, encoding="utf-8")
-    log(f"׳“׳•׳— ׳ ׳©׳׳¨")
+    log("Report saved")
 
     total_p = sum(1 for m in meetings_with_docs for d in m["docs"] if d.get("is_protocol"))
     subj = f"Haifa Committee Report {datetime.now().strftime('%d/%m/%Y')} - {len(meetings)} meetings | {total_p} protocols"
     send_email(subj, html)
-    log("׳¡׳™׳•׳!")
+    log("Done!")
 
 if __name__ == "__main__":
     main()
