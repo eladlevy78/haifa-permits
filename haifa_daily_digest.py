@@ -100,23 +100,28 @@ def build_html(summaries):
     for m in meetings:
         for d in m.get("docs", []):
             txt = d.get("text","")
-            has_proto = "׳₪׳¨׳•׳˜׳•׳§׳•׳" in txt or "Protocol" in txt
-            is_proto = d.get("isProtocol") or has_proto
-            log(f"  Doc: {txt[:40]} proto={is_proto} empty={not d.get('summary')}")
-            if is_proto and not d.get("summary") and d.get("href","#") != "#":
+            href = d.get("href","#")
+            # Detect protocol: by flag, text keywords, or URL path (778 = protocols, 951 = agendas)
+            has_proto_url = "/778/" in href
+            has_proto_txt = any(c in txt for c in ["׳₪׳¨׳•׳˜", "Protocol", "protocol"])
+            is_proto = d.get("isProtocol") or has_proto_url or has_proto_txt
+            log(f"  Doc: {txt[:30]} proto={is_proto} url778={has_proto_url}")
+            if is_proto and not d.get("summary") and href != "#":
                 log(f"  Summarizing: {txt[:50]}")
-                d["summary"] = summarize_pdf(d["href"], m.get("committee",""), m.get("date",""))
+                d["summary"] = summarize_pdf(href, m.get("committee",""), m.get("date",""))
 
     total_meetings  = len(meetings)
-    total_protocols = sum(1 for m in meetings for d in m.get("docs",[]) if d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol","protocol","׳₪׳¨׳•׳˜׳•׳§׳•׳"]))
+    total_protocols = sum(1 for m in meetings for d in m.get("docs",[]) if d.get("isProtocol") or "/778/" in d.get("href","") or any(c in d.get("text","") for c in ["׳₪׳¨׳•׳˜","Protocol","protocol"]))
     total_docs      = sum(len(m.get("docs",[])) for m in meetings)
 
     meeting_cards = ""
     for m in meetings:
         docs_html = ""
         for d in m.get("docs", []):
-            # Detect protocol from text as well as isProtocol flag
-            is_proto = d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol", "protocol", "׳₪׳¨׳•׳˜׳•׳§׳•׳"])
+            # Detect protocol from flag, URL path, or text
+            _href = d.get("href","#")
+            _txt  = d.get("text","")
+            is_proto = d.get("isProtocol") or "/778/" in _href or any(c in _txt for c in ["׳₪׳¨׳•׳˜", "Protocol", "protocol"])
             badge   = "<span class='bp'>Protocol</span>" if is_proto else "<span class='ba'>Agenda</span>"
             summary = ""
             if d.get("summary"):
