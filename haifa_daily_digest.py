@@ -62,14 +62,16 @@ def build_html(summaries):
     generated = summaries.get("generated", "")
     
     total_meetings  = len(meetings)
-    total_protocols = sum(1 for m in meetings for d in m.get("docs",[]) if d.get("isProtocol"))
+    total_protocols = sum(1 for m in meetings for d in m.get("docs",[]) if d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol","protocol","׳₪׳¨׳•׳˜׳•׳§׳•׳"]))
     total_docs      = sum(len(m.get("docs",[])) for m in meetings)
 
     meeting_cards = ""
     for m in meetings:
         docs_html = ""
         for d in m.get("docs", []):
-            badge   = "<span class='bp'>Protocol</span>" if d.get("isProtocol") else "<span class='ba'>Agenda</span>"
+            # Detect protocol from text as well as isProtocol flag
+            is_proto = d.get("isProtocol") or any(x in d.get("text","") for x in ["Protocol", "protocol", "׳₪׳¨׳•׳˜׳•׳§׳•׳"])
+            badge   = "<span class='bp'>Protocol</span>" if is_proto else "<span class='ba'>Agenda</span>"
             summary = ""
             if d.get("summary"):
                 lines   = [l.strip().lstrip("-ג€¢* ") for l in d["summary"].split("\n") if l.strip()]
