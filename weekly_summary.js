@@ -35,11 +35,12 @@ async function run() {
     if (!link || cells.length < 3) return;
     const match = link.href.match(/getMeeting\((\d+),(\d+)\)/);
     if (!match) return;
+    // columns: meetingId | committeeId | committeeName | date | day | hebrewDate | docs
     meetings.push({
       committeeId: match[1],
       meetingId: match[2],
-      committee: cells[1]?.innerText.trim(),
-      date: cells[2]?.innerText.trim(),
+      committee: cells[2]?.innerText.trim() || cells[1]?.innerText.trim(),
+      date: cells[3]?.innerText.trim() || cells[2]?.innerText.trim(),
     });
   });
   
@@ -63,7 +64,7 @@ async function run() {
     
     const docs = [];
     for (const pdf of pdfs) {
-      const isProtocol = pdf.text.includes("פרוטוקול") || pdf.text.includes("Protocol");
+      const isProtocol = pdf.text.includes("׳₪׳¨׳•׳˜׳•׳§׳•׳") || pdf.text.includes("Protocol") || pdf.text.includes("protocol");
       
       // Download and summarize protocol PDFs
       let summary = "";
@@ -156,11 +157,11 @@ async function run() {
   });
   
   if (pushResp.ok) {
-    console.log("✅ Summaries pushed to GitHub successfully!");
+    console.log("ג… Summaries pushed to GitHub successfully!");
     console.log("GitHub Actions will now build and send the email.");
   } else {
     const err = await pushResp.json();
-    console.error("❌ GitHub push failed:", err.message);
+    console.error("ג GitHub push failed:", err.message);
   }
   
   return summaries;
