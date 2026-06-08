@@ -1,0 +1,67 @@
+name: Haifa Daily Digest
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          EMAIL_SENDER:   ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python haifa_daily_digest.py
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report
+          path: haifa_data/daily_report.html
+          retention-days: 7
+
+      - name: Post digest to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          python - <<'PY'
+          import os, re, html, json, urllib.request, urllib.parse
+
+          # Build a plain-text message from the HTML report (Telegram limit ~4096 chars)
+          with open('haifa_data/daily_report.html', encoding='utf-8') as f:
+              raw = f.read()
+          text = re.sub(r'(?is)<(script|style).*?</\1>', '', raw)   # drop script/style
+          text = re.sub(r'(?i)</(p|div|tr|li|h[1-6]|br)\s*>', '\n', text)  # block tags -> newline
+          text = re.sub(r'<[^>]+>', '', text)                        # strip remaining tags
+          text = html.unescape(text)
+          text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text).strip()
+          if len(text) > 3900:
+              text = text[:3900].rstrip() + '\n…'
+
+          token = os.environ['TELEGRAM_BOT_TOKEN']
+          chat  = os.environ['TELEGRAM_CHANNEL_ID']
+          data = urllib.parse.urlencode({
+              'chat_id': chat,
+              'text': text or "עדכון: הדייג׳סט היומי של חיפה.",
+              'disable_web_page_preview': 'true',
+          }).encode()
+          req = urllib.request.urlopen(
+              f'https://api.telegram.org/bot{token}/sendMessage', data=data)
+          print('Telegram status:', req.status)
+          PY
