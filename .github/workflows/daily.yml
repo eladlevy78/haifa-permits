@@ -41,27 +41,33 @@ jobs:
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
           python - <<'PY'
-          import os, re, html, json, urllib.request, urllib.parse
+          import os, re, html, urllib.request, urllib.parse, urllib.error
 
-          # Build a plain-text message from the HTML report (Telegram limit ~4096 chars)
           with open('haifa_data/daily_report.html', encoding='utf-8') as f:
               raw = f.read()
-          text = re.sub(r'(?is)<(script|style).*?</\1>', '', raw)   # drop script/style
-          text = re.sub(r'(?i)</(p|div|tr|li|h[1-6]|br)\s*>', '\n', text)  # block tags -> newline
-          text = re.sub(r'<[^>]+>', '', text)                        # strip remaining tags
+          text = re.sub(r'(?is)<(script|style).*?</\1>', '', raw)
+          text = re.sub(r'(?i)</(p|div|tr|li|h[1-6]|br)\s*>', '\n', text)
+          text = re.sub(r'<[^>]+>', '', text)
           text = html.unescape(text)
           text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text).strip()
+          if not text:
+              text = "עדכון: הדייג׳סט היומי של חיפה."
           if len(text) > 3900:
               text = text[:3900].rstrip() + '\n…'
 
-          token = os.environ['TELEGRAM_BOT_TOKEN']
-          chat  = os.environ['TELEGRAM_CHANNEL_ID']
+          token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+          chat  = os.environ.get('TELEGRAM_CHANNEL_ID', '')
+          print(f'diag: token_set={bool(token)} chat_id_len={len(chat)} text_len={len(text)}')
           data = urllib.parse.urlencode({
               'chat_id': chat,
-              'text': text or "עדכון: הדייג׳סט היומי של חיפה.",
+              'text': text,
               'disable_web_page_preview': 'true',
           }).encode()
-          req = urllib.request.urlopen(
-              f'https://api.telegram.org/bot{token}/sendMessage', data=data)
-          print('Telegram status:', req.status)
+          try:
+              r = urllib.request.urlopen(f'https://api.telegram.org/bot{token}/sendMessage', data=data)
+              print('Telegram OK:', r.status, r.read().decode())
+          except urllib.error.HTTPError as e:
+              body = e.read().decode()
+              print('Telegram HTTPError', e.code, body)
+              raise
           PY
